@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1c2c">
+<title>Pixel Runner</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: #1a1c2c;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  #game {
+    position: absolute;
+    left: 0; top: 0;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  .btn {
+    position: fixed;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: rgba(244,244,244,0.10);
+    border: 2px solid rgba(244,244,244,0.25);
+    color: rgba(244,244,244,0.75);
+    font-family: monospace;
+    font-weight: bold;
+    pointer-events: none; /* хиты считаем сами по координатам */
+  }
+  .btn.pressed {
+    background: rgba(244,244,244,0.28);
+    border-color: rgba(244,244,244,0.6);
+  }
+  #btnL, #btnR {
+    width: 72px; height: 72px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    font-size: 30px;
+  }
+  #btnL { left: calc(16px + env(safe-area-inset-left)); }
+  #btnR { left: calc(104px + env(safe-area-inset-left)); }
+  #btnJ {
+    width: 84px; height: 84px;
+    right: calc(18px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    border-radius: 50%;
+    font-size: 22px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn { display: none; } /* на десктопе кнопки не нужны */
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="btn" id="btnL">&#9664;</div>
+<div class="btn" id="btnR">&#9654;</div>
+<div class="btn" id="btnJ">A</div>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Палитра (Sweetie-16 — в духе старых консолей)
+// ---------------------------------------------------------------------------
+var PAL = {
+  K: "#1a1c2c", P: "#5d275d", R: "#b13e53", O: "#ef7d57",
+  Y: "#ffcd75", L: "#a7f070", G: "#38b764", T: "#257179",
+  N: "#29366f", B: "#3b5dc9", A: "#41a6f6", C: "#73eff7",
+  W: "#f4f4f4", S: "#94b0c2", E: "#566c86", D: "#333c57"
+};
+
+// Спрайт из массива строк -> offscreen canvas ('.' = прозрачно)
+function makeSprite(rows) {
+  var h = rows.length, w = rows[0].length;
+  var cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  var c = cv.getContext("2d");
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      var ch = rows[y][x];
+      if (ch !== ".") {
+        c.fillStyle = PAL[ch] || "#f0f";
+        c.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+  return cv;
+}
+function flipSprite(sp) {
+  var cv = document.createElement("canvas");
+  cv.width = sp.width; cv.height = sp.height;
+  var c = cv.getContext("2d");
+  c.translate(sp.width, 0); c.scale(-1, 1);
+  c.drawImage(sp, 0, 0);
+  return cv;
+}
+
+// ---------------------------------------------------------------------------
+// Спрайты
+// ---------------------------------------------------------------------------
+var SPR = {};
+
+SPR.heroStand = makeSprite([
+  "..RRRR..",
+  ".RRRRRR.",
+  ".YYYYYY.",
+  ".YKYYKY.",
+  ".YYYYYY.",
+  ".BBBBBB.",
+  "YBBBBBBY",
+  ".BBBBBB.",
+  ".NNNNNN.",
+  ".NN..NN.",
+  ".NN..NN.",
+  "KKK..KKK"
+]);
+SPR.heroRun1 = makeSprite([
+  "..RRRR..",
+  ".RRRRRR.",
+  ".YYYYYY.",
+  ".YKYYKY.",
+  ".YYYYYY.",
+  ".BBBBBB.",
+  "YBBBBBBY",
+  ".BBBBBB.",
+  ".NNNNNN.",
+  ".NNNNN..",
+  "..NN.NN.",
+  ".KKK.KKK"
+]);
+SPR.heroRun2 = makeSprite([
+  "..RRRR..",
+  ".RRRRRR.",
+  ".YYYYYY.",
+  ".YKYYKY.",
+  ".YYYYYY.",
+  ".BBBBBB.",
+  "YBBBBBBY",
+  ".BBBBBB.",
+  ".NNNNNN.",
+  "..NNNNN.",
+  ".NN.NN..",
+  "KKK.KKK."
+]);
+SPR.heroJump = makeSprite([
+  "..RRRR..",
+  ".RRRRRR.",
+  ".YYYYYY.",
+  ".YKYYKY.",
+  ".YYYYYY.",
+  "YBBBBBBY",
+  "YBBBBBBY",
+  ".BBBBBB.",
+  ".NNNNNN.",
+  ".NN.NN..",
+  ".NN.NN..",
+  ".KK.KK.."
+]);
+["heroStand","heroRun1","heroRun2","heroJump"].forEach(function (k) {
+  SPR[k + "L"] = flipSprite(SPR[k]);
+});
+
+SPR.slime1 = makeSprite([
+  "..GGGG..",
+  ".GLLLLG.",
+  "GLLLLLLG",
+  "GLKLLKLG",
+  "GLLLLLLG",
+  "GGGGGGGG"
+]);
+SPR.slime2 = makeSprite([
+  "........",
+  ".GGGGGG.",
+  "GLLLLLLG",
+  "GLKLLKLG",
+  "GLLLLLLG",
+  "GGGGGGGG"
+]);
+SPR.beetle1 = makeSprite([
+  "..KKKK..",
+  ".KRRRRK.",
+  "KRRWRRWK",
+  "KRRRRRRK",
+  ".KKKKKK.",
+  ".K.KK.K."
+]);
+SPR.beetle2 = makeSprite([
+  "..KKKK..",
+  ".KRRRRK.",
+  "KRRWRRWK",
+  "KRRRRRRK",
+  ".KKKKKK.",
+  "K.K..K.K"
+]);
+SPR.beetle1L = flipSprite(SPR.beetle1);
+SPR.beetle2L = flipSprite(SPR.beetle2);
+
+SPR.coin = [
+  makeSprite([
+    ".YYYY.",
+    "YYOOYY",
+    "YOYYOY",
+    "YOYYOY",
+    "YYOOYY",
+    ".YYYY."
+  ]),
+  makeSprite([
+    "..YY..",
+    ".YOOY.",
+    ".YOOY.",
+    ".YOOY.",
+    ".YOOY.",
+    "..YY.."
+  ]),
+  makeSprite([
+    "..YY..",
+    "..OY..",
+    "..OY..",
+    "..OY..",
+    "..OY..",
+    "..YY.."
+  ])
+];
+SPR.coinFrames = [0, 1, 2, 1];
+
+SPR.heart = makeSprite([
+  ".RR.RR.",
+  "RWRRRRR",
+  "RRRRRRR",
+  ".RRRRR.",
+  "..RRR..",
+  "...R..."
+]);
+SPR.heartEmpty = makeSprite([
+  ".DD.DD.",
+  "D..D..D",
+  "D.....D",
+  ".D...D.",
+  "..D.D..",
+  "...D..."
+]);
+
+SPR.tileGrass = makeSprite([
+  "LLLLLLLL",
+  "GLLGLLGL",
+  "OGGOGGOG",
+  "OOOOOOOO",
+  "OROOOROO",
+  "OOOOOOOO",
+  "OOROOORO",
+  "ROOOROOO"
+]);
+SPR.tileDirt = makeSprite([
+  "OOOOOOOO",
+  "OOROOORO",
+  "OOOOOOOO",
+  "ROOOROOO",
+  "OOOOOOOO",
+  "OOROOORO",
+  "OOOOOOOO",
+  "OROOOROO"
+]);
+SPR.tilePlank = makeSprite([
+  "YYYYYYYY",
+  "OOOYOOOY",
+  "OOOYOOOY",
+  "ROORROOR",
+  "YOOOYOOO",
+  "OYOOOYOO",
+  "OOROOORO",
+  "RRRRRRRR"
+]);
+SPR.flag = makeSprite([
+  "RRRR..",
+  "RRRRR.",
+  "RRRRRR",
+  "RRRRR.",
+  "RRRR..",
+  "WW....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "WS....",
+  "DDDD..",
+  "DDDD.."
+]);
+
+// ---------------------------------------------------------------------------
+// Мини-шрифт 3x5
+// ---------------------------------------------------------------------------
+var FONT = {
+  A:"010101111101101", B:"110101110101110", C:"011100100100011",
+  D:"110101101101110", E:"111100110100111", F:"111100110100100",
+  G:"011100101101011", H:"101101111101101", I:"111010010010111",
+  J:"001001001101010", K:"101110100110101", L:"100100100100111",
+  M:"101111101101101", N:"110101101101101", O:"010101101101010",
+  P:"110101110100100", Q:"010101101010001", R:"110101110101101",
+  S:"011100010001110", T:"111010010010010", U:"101101101101111",
+  V:"101101101101010", W:"101101111111101", X:"101101010101101",
+  Y:"101101010010010", Z:"111001010100111",
+  "0":"111101101101111","1":"010110010010111","2":"111001111100111",
+  "3":"111001011001111","4":"101101111001001","5":"111100111001111",
+  "6":"111100111101111","7":"111001001010010","8":"111101111101111",
+  "9":"111101111001111","!":"010010010000010","-":"000000111000000",
+  ".":"000000000000010",":":"000010000010000"," ":"000000000000000"
+};
+function drawText(c, text, x, y, color) {
+  c.fillStyle = color;
+  for (var i = 0; i < text.length; i++) {
+    var g = FONT[text[i]];
+    if (!g) { continue; }
+    for (var j = 0; j < 15; j++) {
+      if (g[j] === "1") {
+        c.fillRect(x + i * 4 + (j % 3), y + (j / 3 | 0), 1, 1);
+      }
+    }
+  }
+}
+function textW(text) { return text.length * 4 - 1; }
+
+// ---------------------------------------------------------------------------
+// Уровень
+// ---------------------------------------------------------------------------
+var TILE = 8;
+var LEVEL_W = 112, LEVEL_H = 18;
+
+function buildLevel() {
+  var g = [];
+  for (var y = 0; y < LEVEL_H; y++) {
+    g.push(new Array(LEVEL_W).fill("."));
+  }
+  function ground(x0, x1, top) {
+    top = top === undefined ? 16 : top;
+    for (var x = x0; x <= x1; x++) {
+      for (var y = top; y < LEVEL_H; y++) { g[y][x] = "#"; }
+    }
+  }
+  function plat(x0, x1, row) {
+    for (var x = x0; x <= x1; x++) { g[row][x] = "="; }
+  }
+  function coins(x0, x1, row) {
+    for (var x = x0; x <= x1; x++) { g[row][x] = "o"; }
+  }
+  function put(ch, x, y) { g[y][x] = ch; }
+
+  // земля с ямами
+  ground(0, 24);
+  ground(28, 45);
+  ground(49, 69);
+  ground(74, 111);
+  // ступеньки в конце
+  ground(96, 98, 15);
+  ground(99, 101, 14);
+  ground(102, 111, 13);
+
+  // платформы
+  plat(10, 14, 13);
+  plat(25, 27, 12);   // мост над первой ямой
+  plat(33, 36, 13);
+  plat(38, 41, 10);
+  plat(46, 48, 12);   // мост над второй ямой
+  plat(55, 59, 13);
+  plat(60, 63, 10);
+  plat(70, 73, 12);   // мост над третьей ямой
+  plat(80, 85, 13);
+
+  // монетки
+  coins(6, 8, 14);
+  coins(11, 13, 11);
+  coins(25, 27, 10);
+  coins(30, 32, 14);
+  coins(38, 41, 8);
+  coins(46, 48, 10);
+  coins(52, 54, 14);
+  coins(56, 58, 11);
+  coins(60, 63, 8);
+  coins(66, 68, 14);
+  coins(70, 73, 10);
+  coins(76, 78, 14);
+  coins(81, 84, 11);
+  coins(90, 92, 14);
+  put("o", 100, 12);
+  put("o", 103, 11);
+
+  // враги: s - слизень, b - жук
+  put("s", 18, 15);
+  put("s", 40, 15);
+  put("b", 60, 15);
+  put("b", 82, 12);
+  put("s", 88, 15);
+
+  // герой и флаг
+  put("p", 2, 15);
+  put("f", 106, 12);
+
+  return g;
+}
+
+function isSolid(ch) { return ch === "#" || ch === "="; }
+
+// ---------------------------------------------------------------------------
+// Канвас и масштаб
+// ---------------------------------------------------------------------------
+var canvas = document.getElementById("game");
+var ctx = canvas.getContext("2d");
+var SCALE = 3, VW = 0, VH = 0;
+
+function resize() {
+  var w = window.innerWidth, h = window.innerHeight;
+  SCALE = Math.max(2, Math.round(Math.min(w, h) / 140));
+  VW = Math.ceil(w / SCALE);
+  VH = Math.ceil(h / SCALE);
+  canvas.width = VW;
+  canvas.height = VH;
+  canvas.style.width = (VW * SCALE) + "px";
+  canvas.style.height = (VH * SCALE) + "px";
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", function () { setTimeout(resize, 200); });
+resize();
+
+// ---------------------------------------------------------------------------
+// Звук (WebAudio, включается по первому касанию)
+// ---------------------------------------------------------------------------
+var audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+  }
+  if (audioCtx && audioCtx.state === "suspended") { audioCtx.resume(); }
+}
+function beep(freq, dur, type, vol, slide) {
+  if (!audioCtx || audioCtx.state !== "running") { return; }
+  var t = audioCtx.currentTime;
+  var o = audioCtx.createOscillator();
+  var gn = audioCtx.createGain();
+  o.type = type || "square";
+  o.frequency.setValueAtTime(freq, t);
+  if (slide) { o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur); }
+  gn.gain.setValueAtTime(vol || 0.12, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(gn); gn.connect(audioCtx.destination);
+  o.start(t); o.stop(t + dur);
+}
+var sfx = {
+  jump:  function () { beep(220, 0.15, "square", 0.10, 300); },
+  coin:  function () { beep(880, 0.08, "square", 0.10); setTimeout(function(){ beep(1320, 0.12, "square", 0.10); }, 60); },
+  stomp: function () { beep(180, 0.12, "triangle", 0.18, -100); },
+  hurt:  function () { beep(160, 0.25, "sawtooth", 0.12, -100); },
+  over:  function () { beep(330, 0.2, "square", 0.1, -110); setTimeout(function(){ beep(220, 0.3, "square", 0.1, -100); }, 200); },
+  win:   function () { [523, 659, 784, 1047].forEach(function (f, i) { setTimeout(function(){ beep(f, 0.18, "square", 0.1); }, i * 130); }); }
+};
+
+// ---------------------------------------------------------------------------
+// Ввод
+// ---------------------------------------------------------------------------
+var input = { left: false, right: false, jumpHeld: false, jumpBuffer: 0, anyTap: false };
+var keys = {};
+var IS_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+
+// нижняя граница камеры: на сенсорных устройствах поднимаем уровень
+// над кнопками управления
+function maxCamY() {
+  var reserve = IS_TOUCH ? Math.ceil(116 / SCALE) : 0;
+  return LEVEL_H * TILE - VH + reserve;
+}
+
+window.addEventListener("keydown", function (e) {
+  if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].indexOf(e.key) >= 0 || e.code === "Space") {
+    e.preventDefault();
+  }
+  if (keys[e.code]) { return; }
+  keys[e.code] = true;
+  if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+    input.jumpBuffer = 0.12;
+    input.anyTap = true;
+  }
+  if (e.code === "Enter") { input.anyTap = true; }
+});
+window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+
+// Сенсор: считаем попадания пальцев в прямоугольники кнопок сами,
+// чтобы работал мультитач (бег + прыжок одновременно).
+var btnL = document.getElementById("btnL");
+var btnR = document.getElementById("btnR");
+var btnJ = document.getElementById("btnJ");
+var touchState = { left: false, right: false, jump: false };
+
+function hitRect(el, x, y, pad) {
+  var r = el.getBoundingClientRect();
+  return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+}
+function updateTouches(e) {
+  var prevJump = touchState.jump;
+  touchState.left = touchState.right = touchState.jump = false;
+  for (var i = 0; i < e.touches.length; i++) {
+    var t = e.touches[i];
+    var x = t.clientX, y = t.clientY;
+    if (hitRect(btnJ, x, y, 14)) { touchState.jump = true; }
+    else if (hitRect(btnL, x, y, 10)) { touchState.left = true; }
+    else if (hitRect(btnR, x, y, 10)) { touchState.right = true; }
+    else if (y > window.innerHeight * 0.45) {
+      // запасные зоны: низ экрана, слева — движение, справа — прыжок
+      if (x < window.innerWidth * 0.28) { touchState.left = true; }
+      else if (x < window.innerWidth * 0.5) { touchState.right = true; }
+      else { touchState.jump = true; }
+    }
+  }
+  if (touchState.jump && !prevJump) { input.jumpBuffer = 0.12; }
+  btnL.classList.toggle("pressed", touchState.left);
+  btnR.classList.toggle("pressed", touchState.right);
+  btnJ.classList.toggle("pressed", touchState.jump);
+}
+["touchstart", "touchmove", "touchend", "touchcancel"].forEach(function (ev) {
+  document.addEventListener(ev, function (e) {
+    e.preventDefault();
+    initAudio();
+    if (ev === "touchstart") { input.anyTap = true; }
+    updateTouches(e);
+  }, { passive: false });
+});
+document.addEventListener("mousedown", function () { initAudio(); input.anyTap = true; });
+document.addEventListener("keydown", initAudio);
+// блокируем двойной тап-зум на iOS
+document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+
+function readInput(dt) {
+  input.left = keys.ArrowLeft || keys.KeyA || touchState.left || false;
+  input.right = keys.ArrowRight || keys.KeyD || touchState.right || false;
+  input.jumpHeld = keys.Space || keys.ArrowUp || keys.KeyW || touchState.jump || false;
+  if (input.jumpBuffer > 0) { input.jumpBuffer -= dt; }
+}
+
+// ---------------------------------------------------------------------------
+// Игровое состояние
+// ---------------------------------------------------------------------------
+var GRAVITY = 560, MOVE = 78, JUMP_V = 205;
+var game = null;
+
+function newGame() {
+  var grid = buildLevel();
+  var st = {
+    grid: grid,
+    state: "play",       // play | dead | win
+    stateTime: 0,
+    score: 0,
+    lives: 3,
+    time: 0,
+    coins: [],
+    enemies: [],
+    particles: [],
+    flag: { x: 0, y: 0 },
+    spawn: { x: 16, y: 100 },
+    player: null,
+    camX: 0, camY: 0
+  };
+  for (var y = 0; y < LEVEL_H; y++) {
+    for (var x = 0; x < LEVEL_W; x++) {
+      var ch = grid[y][x];
+      if (ch === "o") {
+        st.coins.push({ x: x * TILE + 1, y: y * TILE + 1, taken: false });
+        grid[y][x] = ".";
+      } else if (ch === "s" || ch === "b") {
+        st.enemies.push({
+          type: ch === "s" ? "slime" : "beetle",
+          x: x * TILE, y: y * TILE + 2,
+          w: 8, h: 6,
+          vx: (ch === "s" ? -18 : -30), vy: 0,
+          dead: false, deadTime: 0
+        });
+        grid[y][x] = ".";
+      } else if (ch === "p") {
+        st.spawn = { x: x * TILE + 1, y: y * TILE - 4 };
+        grid[y][x] = ".";
+      } else if (ch === "f") {
+        st.flag = { x: x * TILE, y: (y + 1) * TILE - 24 };
+        grid[y][x] = ".";
+      }
+    }
+  }
+  st.player = {
+    x: st.spawn.x, y: st.spawn.y,
+    w: 6, h: 11,
+    vx: 0, vy: 0,
+    onGround: false, coyote: 0,
+    face: 1, anim: 0,
+    inv: 0
+  };
+  // камера сразу в правильной позиции, без "подъезда" на старте
+  var lpw = LEVEL_W * TILE;
+  st.camX = Math.max(0, Math.min(lpw - VW, st.player.x + 3 - VW / 2));
+  if (VW >= lpw) { st.camX = (lpw - VW) / 2; }
+  var mcy = maxCamY();
+  st.camY = mcy <= 0 ? mcy
+    : Math.max(0, Math.min(mcy, st.player.y + 5 - VH / 2));
+  return st;
+}
+
+function tileAt(tx, ty) {
+  if (tx < 0 || tx >= LEVEL_W) { return "#"; } // стены по краям
+  if (ty < 0) { return "."; }
+  if (ty >= LEVEL_H) { return "."; }           // внизу — яма
+  return game.grid[ty][tx];
+}
+
+function collideRect(x, y, w, h) {
+  var x0 = Math.floor(x / TILE), x1 = Math.floor((x + w - 0.01) / TILE);
+  var y0 = Math.floor(y / TILE), y1 = Math.floor((y + h - 0.01) / TILE);
+  for (var ty = y0; ty <= y1; ty++) {
+    for (var tx = x0; tx <= x1; tx++) {
+      if (isSolid(tileAt(tx, ty))) { return true; }
+    }
+  }
+  return false;
+}
+
+// перемещение с поосевым разрешением коллизий
+function moveBody(b, dt) {
+  var hitX = false, hitY = false;
+  var dx = b.vx * dt, dy = b.vy * dt;
+  var step, i, n;
+
+  n = Math.max(1, Math.ceil(Math.abs(dx) / 3));
+  step = dx / n;
+  for (i = 0; i < n; i++) {
+    if (collideRect(b.x + step, b.y, b.w, b.h)) { hitX = true; break; }
+    b.x += step;
+  }
+  n = Math.max(1, Math.ceil(Math.abs(dy) / 3));
+  step = dy / n;
+  for (i = 0; i < n; i++) {
+    if (collideRect(b.x, b.y + step, b.w, b.h)) { hitY = true; break; }
+    b.y += step;
+  }
+  if (hitX) {
+    // прижимаемся к стене попиксельно
+    var sx = Math.sign(dx) * 0.5;
+    while (!collideRect(b.x + sx, b.y, b.w, b.h)) { b.x += sx; }
+  }
+  if (hitY) {
+    var sy = Math.sign(dy) * 0.5;
+    while (!collideRect(b.x, b.y + sy, b.w, b.h)) { b.y += sy; }
+  }
+  return { hitX: hitX, hitY: hitY };
+}
+
+function overlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function addSparks(x, y, color, count) {
+  for (var i = 0; i < count; i++) {
+    game.particles.push({
+      x: x, y: y,
+      vx: (Math.random() - 0.5) * 60,
+      vy: -Math.random() * 60 - 20,
+      life: 0.4 + Math.random() * 0.3,
+      color: color
+    });
+  }
+}
+
+function hurtPlayer() {
+  var p = game.player;
+  if (p.inv > 0) { return; }
+  game.lives--;
+  sfx.hurt();
+  addSparks(p.x + 3, p.y + 5, PAL.R, 8);
+  if (game.lives <= 0) {
+    game.state = "dead";
+    game.stateTime = 0;
+    sfx.over();
+  } else {
+    p.inv = 1.6;
+    p.vy = -120;
+    p.vx = 0;
+  }
+}
+
+function killFall() {
+  var p = game.player;
+  game.lives--;
+  sfx.hurt();
+  if (game.lives <= 0) {
+    game.state = "dead";
+    game.stateTime = 0;
+    sfx.over();
+  } else {
+    p.x = game.spawn.x; p.y = game.spawn.y;
+    p.vx = 0; p.vy = 0;
+    p.inv = 1.6;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Обновление
+// ---------------------------------------------------------------------------
+function update(dt) {
+  game.time += dt;
+  game.stateTime += dt;
+  var p = game.player;
+
+  if (game.state === "dead" || game.state === "win") {
+    if (game.stateTime > 0.8 && input.anyTap) {
+      game = newGame();
+    }
+    input.anyTap = false;
+    updateParticles(dt);
+    return;
+  }
+  input.anyTap = false;
+
+  // --- герой ---
+  var target = 0;
+  if (input.left) { target -= MOVE; p.face = -1; }
+  if (input.right) { target += MOVE; p.face = 1; }
+  var accel = p.onGround ? 700 : 420;
+  if (p.vx < target) { p.vx = Math.min(target, p.vx + accel * dt); }
+  else if (p.vx > target) { p.vx = Math.max(target, p.vx - accel * dt); }
+
+  p.vy += GRAVITY * dt;
+  if (p.vy > 260) { p.vy = 260; }
+
+  if (p.onGround) { p.coyote = 0.1; } else if (p.coyote > 0) { p.coyote -= dt; }
+  if (input.jumpBuffer > 0 && p.coyote > 0) {
+    p.vy = -JUMP_V;
+    p.coyote = 0;
+    input.jumpBuffer = 0;
+    sfx.jump();
+  }
+  // короткий прыжок при раннем отпускании
+  if (!input.jumpHeld && p.vy < -60) { p.vy = -60; }
+
+  var res = moveBody(p, dt);
+  if (res.hitX) { p.vx = 0; }
+  if (res.hitY) {
+    if (p.vy > 0) { p.onGround = true; }
+    p.vy = 0;
+  } else {
+    p.onGround = false;
+  }
+  // стоим ли на земле (после горизонтального движения)
+  if (!res.hitY) {
+    p.onGround = collideRect(p.x, p.y + 0.5, p.w, p.h);
+  }
+
+  if (p.inv > 0) { p.inv -= dt; }
+  if (Math.abs(p.vx) > 5 && p.onGround) { p.anim += dt * Math.abs(p.vx) / 8; }
+
+  // упали в яму
+  if (p.y > LEVEL_H * TILE + 20) { killFall(); }
+
+  // --- монетки ---
+  var pr = { x: p.x, y: p.y, w: p.w, h: p.h };
+  for (var i = 0; i < game.coins.length; i++) {
+    var c = game.coins[i];
+    if (!c.taken && overlap(pr, { x: c.x, y: c.y, w: 6, h: 6 })) {
+      c.taken = true;
+      game.score += 10;
+      sfx.coin();
+      addSparks(c.x + 3, c.y + 3, PAL.Y, 5);
+    }
+  }
+
+  // --- враги ---
+  for (i = 0; i < game.enemies.length; i++) {
+    var e = game.enemies[i];
+    if (e.dead) { e.deadTime += dt; continue; }
+    e.vy += GRAVITY * dt;
+    if (e.vy > 260) { e.vy = 260; }
+    var er = moveBody(e, dt);
+    if (er.hitY) { e.vy = 0; }
+    // разворот у стены
+    if (er.hitX) { e.vx = -e.vx; }
+    // разворот у края платформы
+    var aheadX = e.vx < 0 ? e.x - 1 : e.x + e.w + 1;
+    var footY = e.y + e.h + 2;
+    if (er.hitY && !isSolid(tileAt(Math.floor(aheadX / TILE), Math.floor(footY / TILE)))) {
+      e.vx = -e.vx;
+    }
+    if (e.y > LEVEL_H * TILE + 20) { e.dead = true; e.deadTime = 10; }
+
+    // столкновение с героем
+    if (p.inv <= 0 && overlap(pr, e)) {
+      if (p.vy > 40 && p.y + p.h - e.y < 6) {
+        e.dead = true; e.deadTime = 0;
+        p.vy = -140;
+        game.score += 25;
+        sfx.stomp();
+        addSparks(e.x + 4, e.y + 3, PAL.G, 6);
+      } else {
+        hurtPlayer();
+        pr.x = p.x; pr.y = p.y;
+      }
+    }
+  }
+
+  // --- флаг ---
+  if (overlap(pr, { x: game.flag.x, y: game.flag.y, w: 6, h: 24 })) {
+    game.state = "win";
+    game.stateTime = 0;
+    game.score += 100;
+    sfx.win();
+  }
+
+  updateParticles(dt);
+
+  // --- камера ---
+  var levelPxW = LEVEL_W * TILE, levelPxH = LEVEL_H * TILE;
+  var tx = p.x + p.w / 2 - VW / 2;
+  tx = Math.max(0, Math.min(levelPxW - VW, tx));
+  if (VW >= levelPxW) { tx = (levelPxW - VW) / 2; }
+  game.camX += (tx - game.camX) * Math.min(1, dt * 8);
+
+  var ty2, mcy = maxCamY();
+  if (mcy <= 0) {
+    ty2 = mcy; // весь уровень помещается: прижат к низу, сверху небо
+  } else {
+    ty2 = p.y + p.h / 2 - VH / 2;
+    ty2 = Math.max(0, Math.min(mcy, ty2));
+  }
+  game.camY += (ty2 - game.camY) * Math.min(1, dt * 8);
+}
+
+function updateParticles(dt) {
+  for (var i = game.particles.length - 1; i >= 0; i--) {
+    var pt = game.particles[i];
+    pt.life -= dt;
+    if (pt.life <= 0) { game.particles.splice(i, 1); continue; }
+    pt.vy += 300 * dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Отрисовка
+// ---------------------------------------------------------------------------
+function drawBackground() {
+  // небо полосами
+  var bands = [PAL.B, PAL.A, PAL.A, PAL.C];
+  var bh = Math.ceil(VH / bands.length);
+  for (var i = 0; i < bands.length; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(0, i * bh, VW, bh);
+  }
+  var horizon = LEVEL_H * TILE - game.camY; // экранная координата низа уровня
+
+  // дальние горы (медленный параллакс)
+  var mx = -((game.camX * 0.3) % 90);
+  for (var x = mx - 90; x < VW + 90; x += 90) {
+    for (var s = 0; s < 34; s++) {
+      ctx.fillStyle = s < 4 ? PAL.C : PAL.T; // снежная шапка
+      ctx.fillRect(x + 34 - s, horizon - 68 + s * 2, 2 + s * 2, 2);
+    }
+  }
+  // облака
+  ctx.fillStyle = "rgba(244,244,244,0.85)";
+  var cx = -((game.camX * 0.5) % 140);
+  for (x = cx - 140; x < VW + 140; x += 140) {
+    drawCloud(x + 20, horizon - 120);
+    drawCloud(x + 85, horizon - 96);
+  }
+  // под уровнем — темнота (видно в портретном режиме и в ямах)
+  if (horizon < VH) {
+    ctx.fillStyle = PAL.D;
+    ctx.fillRect(0, Math.round(horizon), VW, VH - Math.round(horizon));
+  }
+}
+function drawCloud(x, y) {
+  ctx.fillRect(x + 3, y, 18, 4);
+  ctx.fillRect(x, y + 4, 26, 5);
+  ctx.fillRect(x + 8, y - 3, 9, 3);
+}
+
+function drawTiles() {
+  var x0 = Math.max(0, Math.floor(game.camX / TILE));
+  var x1 = Math.min(LEVEL_W - 1, Math.floor((game.camX + VW) / TILE));
+  var y0 = Math.max(0, Math.floor(game.camY / TILE));
+  var y1 = Math.min(LEVEL_H - 1, Math.floor((game.camY + VH) / TILE));
+  for (var ty = y0; ty <= y1; ty++) {
+    for (var tx = x0; tx <= x1; tx++) {
+      var ch = game.grid[ty][tx];
+      if (ch === "#") {
+        var above = ty > 0 ? game.grid[ty - 1][tx] : ".";
+        var sp = isSolid(above) ? SPR.tileDirt : SPR.tileGrass;
+        ctx.drawImage(sp, Math.round(tx * TILE - game.camX), Math.round(ty * TILE - game.camY));
+      } else if (ch === "=") {
+        ctx.drawImage(SPR.tilePlank, Math.round(tx * TILE - game.camX), Math.round(ty * TILE - game.camY));
+      }
+    }
+  }
+}
+
+function draw() {
+  drawBackground();
+  drawTiles();
+
+  var camX = game.camX, camY = game.camY;
+
+  // флаг
+  ctx.drawImage(SPR.flag, Math.round(game.flag.x - camX), Math.round(game.flag.y - camY));
+
+  // монетки
+  var cf = SPR.coinFrames[Math.abs(Math.floor(game.time * 8)) % 4];
+  for (var i = 0; i < game.coins.length; i++) {
+    var c = game.coins[i];
+    if (!c.taken) {
+      ctx.drawImage(SPR.coin[cf], Math.round(c.x - camX), Math.round(c.y - camY));
+    }
+  }
+
+  // враги
+  for (i = 0; i < game.enemies.length; i++) {
+    var e = game.enemies[i];
+    if (e.dead) {
+      if (e.deadTime < 0.3) {
+        ctx.globalAlpha = 1 - e.deadTime / 0.3;
+        var spd = e.type === "slime" ? SPR.slime1 : SPR.beetle1;
+        ctx.drawImage(spd, Math.round(e.x - camX), Math.round(e.y - camY + 3), 8, 3);
+        ctx.globalAlpha = 1;
+      }
+      continue;
+    }
+    var f2 = Math.floor(game.time * 6) % 2;
+    var sp;
+    if (e.type === "slime") {
+      sp = f2 ? SPR.slime2 : SPR.slime1;
+    } else {
+      sp = e.vx > 0 ? (f2 ? SPR.beetle2L : SPR.beetle1L) : (f2 ? SPR.beetle2 : SPR.beetle1);
+    }
+    ctx.drawImage(sp, Math.round(e.x - camX), Math.round(e.y - camY));
+  }
+
+  // герой
+  var p = game.player;
+  var visible = p.inv <= 0 || Math.floor(game.time * 12) % 2 === 0;
+  if (game.state !== "dead" && visible) {
+    var key;
+    if (!p.onGround) { key = "heroJump"; }
+    else if (Math.abs(p.vx) > 5) { key = Math.floor(p.anim) % 2 ? "heroRun1" : "heroRun2"; }
+    else { key = "heroStand"; }
+    if (p.face < 0) { key += "L"; }
+    ctx.drawImage(SPR[key], Math.round(p.x - 1 - camX), Math.round(p.y - 1 - camY));
+  }
+
+  // частицы
+  for (i = 0; i < game.particles.length; i++) {
+    var pt = game.particles[i];
+    ctx.fillStyle = pt.color;
+    ctx.fillRect(Math.round(pt.x - camX), Math.round(pt.y - camY), 1, 1);
+  }
+
+  drawHUD();
+}
+
+function drawHUD() {
+  var pad = 4;
+  // жизни
+  for (var i = 0; i < 3; i++) {
+    ctx.drawImage(i < game.lives ? SPR.heart : SPR.heartEmpty, pad + i * 9, pad);
+  }
+  // счёт
+  var s = "SCORE " + game.score;
+  drawText(ctx, s, VW - textW(s) - pad + 1, pad + 1, PAL.K);
+  drawText(ctx, s, VW - textW(s) - pad, pad, PAL.W);
+
+  if (game.state === "dead" || game.state === "win") {
+    ctx.fillStyle = "rgba(26,28,44,0.75)";
+    ctx.fillRect(0, 0, VW, VH);
+    var title = game.state === "dead" ? "GAME OVER" : "YOU WIN!";
+    var color = game.state === "dead" ? PAL.R : PAL.Y;
+    drawBigText(title, VH / 2 - 20, color);
+    var sc = "SCORE " + game.score;
+    drawText(ctx, sc, Math.round((VW - textW(sc)) / 2), Math.round(VH / 2), PAL.W);
+    if (game.stateTime > 0.8 && Math.floor(game.time * 2) % 2 === 0) {
+      var hint = "TAP TO RESTART";
+      drawText(ctx, hint, Math.round((VW - textW(hint)) / 2), Math.round(VH / 2 + 14), PAL.C);
+    }
+  }
+}
+
+function drawBigText(text, y, color) {
+  // шрифт 3x5 в 2 раза крупнее через offscreen
+  var w = textW(text);
+  var cv = document.createElement("canvas");
+  cv.width = w; cv.height = 5;
+  var c = cv.getContext("2d");
+  drawText(c, text, 0, 0, color);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(cv, Math.round((VW - w * 2) / 2), Math.round(y), w * 2, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Главный цикл
+// ---------------------------------------------------------------------------
+game = newGame();
+var lastT = performance.now();
+function frame(now) {
+  var dt = Math.max(0, Math.min(0.033, (now - lastT) / 1000));
+  lastT = now;
+  readInput(dt);
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
