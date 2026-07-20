@@ -1143,6 +1143,9 @@ function drawSprite(key, x, y, w, h) {
     ctx.drawImage(SPR[key], x, y, w, h);
   }
 }
+// уменьшенный размер дракона для декоративных экранов (титул, интро),
+// чтобы оставался запас места до текстовых панелей
+var DRAGON_PORTRAIT = [70, 71];
 
 // ---------------------------------------------------------------------------
 // Карты: 3 уровня ("", "+", "++"). Третий уровень даёт особые свойства:
@@ -2489,10 +2492,10 @@ function drawSoftPanel(x, y, w, h, alpha) {
 // силуэт не терялся на фоне детализированной стены.
 function drawMonsterBacking(cx, topY, w, h, big) {
   var skew = Math.round(h * 0.14);
-  var pad = big ? 10 : 6;
+  var pad = big ? 8 : 5;
   var x0 = cx - w / 2 - pad, x1 = cx + w / 2 + pad;
   var y0 = topY - pad, y1 = topY + h + pad;
-  ctx.fillStyle = big ? "rgba(6,6,10,0.62)" : "rgba(6,6,10,0.5)";
+  ctx.fillStyle = big ? "rgba(23,26,42,0.5)" : "rgba(23,26,42,0.42)";
   ctx.beginPath();
   ctx.moveTo(x0 + skew, y0);
   ctx.lineTo(x1 + skew, y0);
@@ -2500,7 +2503,7 @@ function drawMonsterBacking(cx, topY, w, h, big) {
   ctx.lineTo(x0 - skew, y1);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = big ? "rgba(255,205,117,0.55)" : "rgba(148,176,194,0.4)";
+  ctx.strokeStyle = big ? "rgba(255,205,117,0.4)" : "rgba(150,178,196,0.28)";
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -2794,6 +2797,7 @@ function drawBattle() {
   }
 
   var py = 92;
+  drawSoftPanel(2, 87, IW - 4, 26, 0.45);
   if (G.playerFlash > 0 && Math.floor(G.time * 30) % 2 === 0) {
     ctx.fillStyle = G.fireFlash > 0 ? "rgba(239,125,87,0.4)" : "rgba(177,62,83,0.35)";
     ctx.fillRect(0, py - 4, IW, 32);
@@ -3130,7 +3134,6 @@ function drawLair() {
   ctx.fillRect(0, 0, IW, IH);
   var dsize = spriteSize("dragon");
   var dw2 = Math.round(dsize[0] * 1.3), dh2 = Math.round(dsize[1] * 1.3);
-  drawMonsterBacking(IW / 2, 40, dw2, dh2, true);
   ctx.save();
   ctx.globalAlpha = 0.25 + Math.sin(G.time * 2) * 0.1;
   drawSprite("dragon", Math.round((IW - dw2) / 2), 40, dw2, dh2);
@@ -3138,7 +3141,7 @@ function drawLair() {
   drawSoftPanel(14, 4, IW - 28, 52, 0.4);
   drawTextC(ctx, "ЛОГОВО", IW / 2, 30, PAL.R, 2);
   drawTextC(ctx, "ДРАКОНА", IW / 2, 46, PAL.R, 2);
-  drawSoftPanel(6, 112, IW - 12, 32, 0.45);
+  drawSoftPanel(6, 112, IW - 12, 34, 0.45);
   drawLines(["ЗА ДВЕРЬЮ - ЖАР И РЁВ.",
              "ПРИНЦЕССА КРИЧИТ ОТТУДА:",
              "НЕ БОЙСЯ ЕГО ПЛАМЕНИ!"], 120, 10, PAL.W);
@@ -3157,32 +3160,34 @@ function drawTitle() {
   drawTextC(ctx, "ДРАКОНЬЕ", IW / 2, 26, PAL.Y, 2);
   drawTextC(ctx, "ПОДЗЕМЕЛЬЕ", IW / 2, 42, PAL.O, 2);
 
-  var tsize = spriteSize("dragon");
-  drawMonsterBacking(IW / 2, 60, tsize[0], tsize[1], true);
-  drawSprite("dragon", Math.round((IW - tsize[0]) / 2), 60, tsize[0], tsize[1]);
+  var tw = DRAGON_PORTRAIT[0], th = DRAGON_PORTRAIT[1];
+  drawMonsterBacking(IW / 2, 60, tw, th, true);
+  drawSprite("dragon", Math.round((IW - tw) / 2), 60, tw, th);
   ctx.drawImage(SPR.princess, 14, 78, 20, 28);
   ctx.drawImage(SPR.knight, IW - 36, 78, 20, 28);
 
-  drawSoftPanel(4, 118, IW - 8, 46, 0.42);
-  drawLines(["КАРТОЧНЫЙ РОГАЛИК", "СПАСИ ПРИНЦЕССУ ОТ ДРАКОНА"], 126, 10, PAL.W);
+  drawSoftPanel(4, 144, IW - 8, 88, 0.42);
+  drawLines(["КАРТОЧНЫЙ РОГАЛИК", "СПАСИ ПРИНЦЕССУ ОТ ДРАКОНА"], 150, 10, PAL.W);
   drawLines(["4 ЯРУСА. ВЫБИРАЙ ПУТЬ ПО КАРТЕ.",
              "22 КАРТЫ, 3 УРОВНЯ ПРОКАЧКИ,",
              "17 РЕЛИКВИЙ, 6 СТРАЖЕЙ.",
-             "НА ДНЕ ЖДЁТ ДРАКОН."], 148, 8, PAL.S);
-  if (best > 0) { drawTextC(ctx, "РЕКОРД: ЭТАЖ " + best + "/" + ACTS * ROWS, IW / 2, 184, PAL.L); }
-  if (wins > 0) { drawTextC(ctx, "СПАСЕНИЙ: " + wins, IW / 2, 194, PAL.M); }
-  drawTextC(ctx, "РЕЖИМ: ХАРДКОР", IW / 2, 208, PAL.R);
+             "НА ДНЕ ЖДЁТ ДРАКОН."], 172, 8, PAL.S);
+  if (best > 0) { drawTextC(ctx, "РЕКОРД: ЭТАЖ " + best + "/" + ACTS * ROWS, IW / 2, 204, PAL.L); }
+  if (wins > 0) { drawTextC(ctx, "СПАСЕНИЙ: " + wins, IW / 2, 212, PAL.M); }
+  drawTextC(ctx, "РЕЖИМ: ХАРДКОР", IW / 2, 220, PAL.R);
 
   if (Math.floor(G.time * 2) % 2 === 0) {
-    drawTextC(ctx, "ТАП = НАЧАТЬ", IW / 2, 224, PAL.C);
+    drawTextC(ctx, "ТАП = НАЧАТЬ", IW / 2, 240, PAL.C);
   }
 }
 
 function drawIntro() {
   if (G.introIdx === 0) {
-    var isize = spriteSize("dragon");
-    drawSprite("dragon", Math.round((IW - isize[0]) / 2), 40, isize[0], isize[1]);
-    ctx.drawImage(SPR.princess, IW / 2 + 40, 78, 20, 28);
+    var tw = DRAGON_PORTRAIT[0], th = DRAGON_PORTRAIT[1];
+    drawMonsterBacking(IW / 2, 36, tw, th, true);
+    drawSprite("dragon", Math.round((IW - tw) / 2), 36, tw, th);
+    ctx.drawImage(SPR.princess, IW / 2 + 46, 78, 20, 28);
+    drawSoftPanel(4, 122, IW - 8, 56, 0.42);
     drawLines(["ДРАКОН ПОХИТИЛ ПРИНЦЕССУ",
                "И УНЁС ЕЁ НА САМОЕ ДНО",
                "ПОДЗЕМЕЛЬЯ..."], 128, 10, PAL.W);
@@ -3190,6 +3195,7 @@ function drawIntro() {
                "ЕЁ ГОЛОС: ПОМОГИТЕ!"], 158, 10, PAL.M);
   } else {
     ctx.drawImage(SPR.knight, Math.round(IW / 2 - 15), 28, 30, 42);
+    drawSoftPanel(4, 76, IW - 8, 108, 0.42);
     drawLines(["ТЫ - РЫЦАРЬ С КОЛОДОЙ КАРТ.",
                "",
                "ПОДЗЕМЕЛЬЕ - ЭТО КАРТА ПУТЕЙ.",
