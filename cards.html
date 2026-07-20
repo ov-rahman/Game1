@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1c2c">
+<title>Dungeon Deck</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: #1a1c2c;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  #wrap {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #game {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game"></canvas></div>
+<script>
+"use strict";
+
+// ============================================================================
+// DUNGEON DECK — карточный рогалик
+// Правила: спускаешься по этажам подземелья, на каждом — монстр.
+// 3 энергии на ход, рука из 5 карт. Монстр показывает намерение заранее.
+// После победы — новая карта в колоду или лечение. Каждый 5-й этаж — босс.
+// ============================================================================
+
+var IW = 144, IH = 256; // внутреннее разрешение (портрет 9:16)
+
+var PAL = {
+  K: "#1a1c2c", P: "#5d275d", R: "#b13e53", O: "#ef7d57",
+  Y: "#ffcd75", L: "#a7f070", G: "#38b764", T: "#257179",
+  N: "#29366f", B: "#3b5dc9", A: "#41a6f6", C: "#73eff7",
+  W: "#f4f4f4", S: "#94b0c2", E: "#566c86", D: "#333c57"
+};
+
+// ---------------------------------------------------------------------------
+// Пиксельный шрифт 3x5 — ВЕСЬ текст в игре рисуется им
+// ---------------------------------------------------------------------------
+var FONT = {
+  A:"010101111101101", B:"110101110101110", C:"011100100100011",
+  D:"110101101101110", E:"111100110100111", F:"111100110100100",
+  G:"011100101101011", H:"101101111101101", I:"111010010010111",
+  J:"001001001101010", K:"101110100110101", L:"100100100100111",
+  M:"101111101101101", N:"110101101101101", O:"010101101101010",
+  P:"110101110100100", Q:"010101101010001", R:"110101110101101",
+  S:"011100010001110", T:"111010010010010", U:"101101101101111",
+  V:"101101101101010", W:"101101111111101", X:"101101010101101",
+  Y:"101101010010010", Z:"111001010100111",
+  "0":"111101101101111","1":"010110010010111","2":"111001111100111",
+  "3":"111001011001111","4":"101101111001001","5":"111100111001111",
+  "6":"111100111101111","7":"111001001010010","8":"111101111101111",
+  "9":"111101111001111","!":"010010010000010","-":"000000111000000",
+  ".":"000000000000010",":":"000010000010000","+":"000010111010000",
+  "/":"001001010100100","%":"101001010100101","=":"000111000111000",
+  " ":"000000000000000"
+};
+function drawText(c, text, x, y, color, sc) {
+  sc = sc || 1;
+  c.fillStyle = color;
+  for (var i = 0; i < text.length; i++) {
+    var g = FONT[text[i]];
+    if (!g) { continue; }
+    for (var j = 0; j < 15; j++) {
+      if (g[j] === "1") {
+        c.fillRect(x + (i * 4 + (j % 3)) * sc, y + ((j / 3 | 0)) * sc, sc, sc);
+      }
+    }
+  }
+}
+function textW(text, sc) { return (text.length * 4 - 1) * (sc || 1); }
+function drawTextC(c, text, cx, y, color, sc) {
+  drawText(c, text, Math.round(cx - textW(text, sc) / 2), y, color, sc);
+}
+
+// ---------------------------------------------------------------------------
+// Спрайты
+// ---------------------------------------------------------------------------
+function makeSprite(rows) {
+  var h = rows.length, w = 0, y, x;
+  for (y = 0; y < h; y++) { w = Math.max(w, rows[y].length); }
+  var cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  var c = cv.getContext("2d");
+  for (y = 0; y < h; y++) {
+    for (x = 0; x < rows[y].length; x++) {
+      var ch = rows[y][x];
+      if (ch !== ".") {
+        c.fillStyle = PAL[ch] || "#f0f";
+        c.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+  return cv;
+}
+
+var SPR = {};
+
+// --- монстры ---
+SPR.slime = makeSprite([
+  "......GGGG......",
+  "....GGLLLLGG....",
+  "...GLLLLLLLLG...",
+  "..GLLWLLLLWLLG..",
+  "..GLLKLLLLKLLG..",
+  ".GLLLLLLLLLLLLG.",
+  ".GLLLLKKKKLLLLG.",
+  ".GLLLLLLLLLLLLG.",
+  "GGLLLLLLLLLLLLGG",
+  "GGGGGGGGGGGGGGGG"
+]);
+SPR.bat = makeSprite([
+  "KK............KK",
+  "KPK..........KPK",
+  "KPPK..PPPP..KPPK",
+  "KPPPKPPPPPPKPPPK",
+  ".KPPPPWPPWPPPPK.",
+  ".KPPPPKPPKPPPPK.",
+  "..KPPPPPPPPPPK..",
+  "...KPKPPPPKPK...",
+  "....K.KPPK.K....",
+  ".......KK......."
+]);
+SPR.bones = makeSprite([
+  "...KWWWWK...",
+  "..KWWWWWWK..",
+  "..KWKWWKWK..",
+  "..KWKWWKWK..",
+  "..KWWWWWWK..",
+  "...KWKKWK...",
+  "....KWWK....",
+  "..KWWWWWWK..",
+  ".KWKWWWWKWK.",
+  ".KWKWWWWKWK.",
+  ".KK.KWWK.KK.",
+  "....KWWK....",
+  "...KWKKWK...",
+  "...KW..WK...",
+  "..KKK..KKK.."
+]);
+SPR.eye = makeSprite([
+  ".....KKKK.....",
+  "...KKWWWWKK...",
+  "..KWWWWWWWWK..",
+  ".KWWWRRRRWWWK.",
+  ".KWWRRRRRRWWK.",
+  "KWWWRRKKRRWWWK",
+  "KWWWRRKKRRWWWK",
+  ".KWWRRRRRRWWK.",
+  ".KWWWRRRRWWWK.",
+  "..KWWWWWWWWK..",
+  "...KKWWWWKK...",
+  ".....KKKK.....",
+  "...K..KK..K...",
+  "....K.KK.K...."
+]);
+SPR.demon = makeSprite([
+  "KK............KK",
+  "KRK..........KRK",
+  ".KRK.KKKKKK.KRK.",
+  ".KRKKRRRRRRKKRK.",
+  ".KRRRRRRRRRRRRK.",
+  "..KRRRRRRRRRRK..",
+  ".KRRYYRRRRYYRRK.",
+  ".KRRYKRRRRKYRRK.",
+  ".KRRRRRRRRRRRRK.",
+  ".KRRKKKKKKKKRRK.",
+  ".KRRKWKWWKWKRRK.",
+  "..KRRKKKKKKRRK..",
+  "..KRRRRRRRRRRK..",
+  "...KRRKRRKRRK...",
+  "....KK.KK.KK...."
+]);
+
+// --- иконки карт (9x9) ---
+SPR.iSword = makeSprite([
+  "......KK.",
+  ".....KWWK",
+  "....KWWK.",
+  "...KWWK..",
+  "K.KWWK...",
+  ".KKWK....",
+  ".KYK.....",
+  "KYKK.....",
+  "K..K....."
+]);
+SPR.iDagger = makeSprite([
+  "....K....",
+  "...KWK...",
+  "...KWK...",
+  "...KWK...",
+  "...KWK...",
+  "..KYYYK..",
+  "...KBK...",
+  "...KBK...",
+  "....K...."
+]);
+SPR.iShield = makeSprite([
+  ".KKKKKKK.",
+  "KBBBWBBBK",
+  "KBBBWBBBK",
+  "KWWWWWWWK",
+  "KBBBWBBBK",
+  ".KBBWBBK.",
+  ".KBBWBBK.",
+  "..KBWBK..",
+  "...KKK..."
+]);
+SPR.iWall = makeSprite([
+  "KKKKKKKKK",
+  "KSSKSSKSK",
+  "KKKKKKKKK",
+  "KSKSSKSSK",
+  "KKKKKKKKK",
+  "KSSKSSKSK",
+  "KKKKKKKKK",
+  "KSKSSKSSK",
+  "KKKKKKKKK"
+]);
+SPR.iFire = makeSprite([
+  "....K....",
+  "...KOK.K.",
+  "..KOOK.OK",
+  ".KOYOOKOK",
+  ".KOYYOOOK",
+  "KOYYWYYOK",
+  "KOYWWWYOK",
+  ".KOYWYOK.",
+  "..KKKKK.."
+]);
+SPR.iBomb = makeSprite([
+  ".....KY..",
+  "....KY...",
+  "...KK....",
+  ".KKDDKK..",
+  "KDDDDDDK.",
+  "KDDWDDDK.",
+  "KDDDDDDK.",
+  ".KDDDDK..",
+  "..KKKK..."
+]);
+SPR.iPotion = makeSprite([
+  "...KKK...",
+  "...KWK...",
+  "...KWK...",
+  "..KWWWK..",
+  ".KWLLLWK.",
+  "KWLLLLLWK",
+  "KWLGGGLWK",
+  ".KWLLLWK.",
+  "..KKKKK.."
+]);
+SPR.iSkull = makeSprite([
+  "..KKKKK..",
+  ".KLLLLLK.",
+  "KLLLLLLLK",
+  "KLKLLLKLK",
+  "KLKLLLKLK",
+  ".KLLKLLK.",
+  ".KLLLLLK.",
+  "..KLKLK..",
+  "...KKK..."
+]);
+SPR.iDrain = makeSprite([
+  "....K....",
+  "...KPK...",
+  "...KPK...",
+  "..KPRPK..",
+  ".KPRRRPK.",
+  "KPRRWRRPK",
+  "KPRRRRRPK",
+  ".KPRRRPK.",
+  "..KKKKK.."
+]);
+
+// --- мелкие иконки ---
+SPR.heart = makeSprite([
+  ".KK.KK.",
+  "KRWKRRK",
+  "KRRRRRK",
+  ".KRRRK.",
+  "..KRK..",
+  "...K..."
+]);
+SPR.bolt = makeSprite([
+  "..KKK",
+  ".KYYK",
+  "KYYK.",
+  "KKYYK",
+  "..KYK",
+  ".KYK.",
+  ".KK.."
+]);
+SPR.mSword = makeSprite([
+  "....KK.",
+  "...KWWK",
+  "K.KWWK.",
+  ".KWWK..",
+  ".KYK...",
+  "KYKK...",
+  "K..K..."
+]);
+SPR.mShield = makeSprite([
+  "KKKKKKK",
+  "KBBWBBK",
+  "KBBWBBK",
+  "KWWWWWK",
+  ".KBWBK.",
+  "..KWK..",
+  "...K..."
+]);
+// череп для яда
+SPR.mSkull = makeSprite([
+  ".KKKK.",
+  "KLLLLK",
+  "KKLLKK",
+  "KLLLLK",
+  ".KLKL.",
+  ".KKKK."
+]);
+
+// ---------------------------------------------------------------------------
+// Карты
+// ---------------------------------------------------------------------------
+var CARD_DEFS = {
+  strike: { name: "STRIKE", cost: 1, icon: "iSword",  desc: "DMG 6",  dmg: 6 },
+  slash:  { name: "SLASH",  cost: 1, icon: "iSword",  desc: "DMG 9",  dmg: 9 },
+  dagger: { name: "DAGGER", cost: 0, icon: "iDagger", desc: "DMG 3",  dmg: 3 },
+  block:  { name: "BLOCK",  cost: 1, icon: "iShield", desc: "BLK 5",  block: 5 },
+  wall:   { name: "WALL",   cost: 1, icon: "iWall",   desc: "BLK 9",  block: 9 },
+  fire:   { name: "FIRE",   cost: 2, icon: "iFire",   desc: "DMG 14", dmg: 14 },
+  bomb:   { name: "BOMB",   cost: 3, icon: "iBomb",   desc: "DMG 22", dmg: 22 },
+  heal:   { name: "HEAL",   cost: 1, icon: "iPotion", desc: "HP +6",  heal: 6 },
+  venom:  { name: "VENOM",  cost: 1, icon: "iSkull",  desc: "PSN 5",  poison: 5 },
+  drain:  { name: "DRAIN",  cost: 2, icon: "iDrain",  desc: "DMG 7+3", dmg: 7, heal: 3 }
+};
+var REWARD_POOL = ["slash", "dagger", "wall", "fire", "bomb", "heal", "venom", "drain"];
+
+// ---------------------------------------------------------------------------
+// Монстры
+// ---------------------------------------------------------------------------
+var MONSTER_DEFS = [
+  { key: "slime", name: "SLIME",  hp: 14, atk: 5, pattern: "aad" },
+  { key: "bat",   name: "BAT",    hp: 12, atk: 4, pattern: "aaa" },
+  { key: "bones", name: "BONES",  hp: 20, atk: 7, pattern: "ada" },
+  { key: "eye",   name: "THE EYE",hp: 24, atk: 6, pattern: "daa" }
+];
+var BOSS_DEF = { key: "demon", name: "DEMON", hp: 42, atk: 11, pattern: "adaa", boss: true };
+
+// ---------------------------------------------------------------------------
+// Канвас
+// ---------------------------------------------------------------------------
+var canvas = document.getElementById("game");
+var ctx = canvas.getContext("2d");
+canvas.width = IW; canvas.height = IH;
+
+function resize() {
+  var w = window.innerWidth, h = window.innerHeight;
+  var sc = Math.min(w / IW, h / IH);
+  canvas.style.width = Math.floor(IW * sc) + "px";
+  canvas.style.height = Math.floor(IH * sc) + "px";
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", function () { setTimeout(resize, 200); });
+resize();
+
+// ---------------------------------------------------------------------------
+// Звук
+// ---------------------------------------------------------------------------
+var audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+  }
+  if (audioCtx && audioCtx.state === "suspended") { audioCtx.resume(); }
+}
+function beep(freq, dur, type, vol, slide) {
+  if (!audioCtx || audioCtx.state !== "running") { return; }
+  var t = audioCtx.currentTime;
+  var o = audioCtx.createOscillator();
+  var gn = audioCtx.createGain();
+  o.type = type || "square";
+  o.frequency.setValueAtTime(freq, t);
+  if (slide) { o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur); }
+  gn.gain.setValueAtTime(vol || 0.12, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(gn); gn.connect(audioCtx.destination);
+  o.start(t); o.stop(t + dur);
+}
+var sfx = {
+  card:   function () { beep(500, 0.06, "triangle", 0.12, 200); },
+  hit:    function () { beep(150, 0.15, "sawtooth", 0.15, -60); },
+  block:  function () { beep(300, 0.1, "square", 0.1, -80); },
+  heal:   function () { beep(660, 0.12, "sine", 0.12, 220); },
+  poison: function () { beep(220, 0.15, "triangle", 0.1, -120); },
+  hurt:   function () { beep(120, 0.25, "sawtooth", 0.16, -60); },
+  win:    function () { [523, 659, 784].forEach(function (f, i) { setTimeout(function () { beep(f, 0.15, "square", 0.1); }, i * 110); }); },
+  boss:   function () { beep(90, 0.5, "sawtooth", 0.14, -30); },
+  dead:   function () { [330, 262, 196, 131].forEach(function (f, i) { setTimeout(function () { beep(f, 0.22, "square", 0.1); }, i * 180); }); },
+  pick:   function () { beep(880, 0.1, "square", 0.1, 200); }
+};
+
+// ---------------------------------------------------------------------------
+// Состояние
+// ---------------------------------------------------------------------------
+var G = null;
+var BEST_KEY = "dungeonDeckBest";
+var best = 0;
+try { best = parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0; } catch (e) {}
+
+function shuffle(a) {
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+function newRun() {
+  G = {
+    state: "title",   // title | battle | reward | dead
+    time: 0,
+    floor: 0,
+    hp: 30, maxHp: 30,
+    block: 0,
+    energy: 3, maxEnergy: 3,
+    deck: ["strike", "strike", "strike", "strike", "strike",
+           "block", "block", "block", "block", "heal"],
+    drawPile: [], discard: [], hand: [],
+    enemy: null,
+    phase: "player", phaseT: 0,
+    floaters: [], shake: 0,
+    enemyFlash: 0, playerFlash: 0,
+    rewards: [],
+    zones: []
+  };
+}
+newRun();
+
+function startBattle() {
+  G.floor++;
+  var def, isBoss = G.floor % 5 === 0;
+  if (isBoss) { def = BOSS_DEF; }
+  else { def = MONSTER_DEFS[Math.floor(Math.random() * MONSTER_DEFS.length)]; }
+  var lvl = G.floor - 1;
+  G.enemy = {
+    def: def,
+    name: def.name,
+    hp: def.hp + lvl * 3,
+    maxHp: def.hp + lvl * 3,
+    atk: def.atk + Math.floor(lvl / 2),
+    block: 0,
+    poison: 0,
+    step: 0
+  };
+  G.state = "battle";
+  G.phase = "player";
+  G.block = 0;
+  G.drawPile = shuffle(G.deck.slice());
+  G.discard = [];
+  G.hand = [];
+  drawCards(5);
+  G.energy = G.maxEnergy;
+  if (isBoss) { sfx.boss(); }
+}
+
+function drawCards(n) {
+  for (var i = 0; i < n; i++) {
+    if (G.hand.length >= 5) { return; }
+    if (G.drawPile.length === 0) {
+      if (G.discard.length === 0) { return; }
+      G.drawPile = shuffle(G.discard);
+      G.discard = [];
+    }
+    G.hand.push(G.drawPile.pop());
+  }
+}
+
+function intent() {
+  var e = G.enemy;
+  return e.def.pattern[e.step % e.def.pattern.length];
+}
+
+function addFloater(x, y, text, color) {
+  G.floaters.push({ x: x, y: y, text: text, color: color, life: 0.9 });
+}
+
+function damageEnemy(n, silent) {
+  var e = G.enemy;
+  var absorbed = Math.min(e.block, n);
+  e.block -= absorbed;
+  var dealt = n - absorbed;
+  e.hp -= dealt;
+  G.enemyFlash = 0.18;
+  if (!silent) { sfx.hit(); }
+  addFloater(IW / 2 + 20, 52, "-" + dealt, dealt > 0 ? PAL.Y : PAL.S);
+  if (e.hp <= 0) {
+    e.hp = 0;
+    G.phase = "dying";
+    G.phaseT = 0.7;
+    sfx.win();
+  }
+}
+
+function playCard(idx) {
+  if (G.state !== "battle" || G.phase !== "player") { return; }
+  var key = G.hand[idx];
+  if (!key) { return; }
+  var c = CARD_DEFS[key];
+  if (c.cost > G.energy) {
+    addFloater(IW / 2, 150, "NO ENERGY", PAL.R);
+    return;
+  }
+  G.energy -= c.cost;
+  G.hand.splice(idx, 1);
+  G.discard.push(key);
+  sfx.card();
+  if (c.dmg) { damageEnemy(c.dmg); }
+  if (c.block) {
+    G.block += c.block;
+    addFloater(IW / 2 - 30, 120, "+" + c.block, PAL.A);
+    sfx.block();
+  }
+  if (c.heal) {
+    var h = Math.min(c.heal, G.maxHp - G.hp);
+    G.hp += h;
+    addFloater(IW / 2 - 30, 112, "+" + h, PAL.L);
+    sfx.heal();
+  }
+  if (c.poison) {
+    G.enemy.poison += c.poison;
+    addFloater(IW / 2 + 20, 44, "PSN +" + c.poison, PAL.G);
+    sfx.poison();
+  }
+}
+
+function endTurn() {
+  if (G.state !== "battle" || G.phase !== "player") { return; }
+  G.discard = G.discard.concat(G.hand);
+  G.hand = [];
+  G.phase = "enemyPoison";
+  G.phaseT = 0.45;
+}
+
+function enemyPoisonTick() {
+  var e = G.enemy;
+  if (e.poison > 0) {
+    e.hp -= e.poison;
+    addFloater(IW / 2 + 20, 52, "-" + e.poison, PAL.G);
+    G.enemyFlash = 0.18;
+    sfx.poison();
+    e.poison--;
+    if (e.hp <= 0) {
+      e.hp = 0;
+      G.phase = "dying";
+      G.phaseT = 0.7;
+      sfx.win();
+      return;
+    }
+  }
+  G.phase = "enemyAct";
+  G.phaseT = 0.5;
+}
+
+function enemyAct() {
+  var e = G.enemy;
+  var act = intent();
+  e.step++;
+  if (act === "a") {
+    var dmg = e.atk;
+    var absorbed = Math.min(G.block, dmg);
+    G.block -= absorbed;
+    var dealt = dmg - absorbed;
+    G.hp -= dealt;
+    G.playerFlash = 0.25;
+    G.shake = 0.25;
+    addFloater(IW / 2 - 30, 112, "-" + dealt, dealt > 0 ? PAL.R : PAL.S);
+    if (dealt > 0) { sfx.hurt(); } else { sfx.block(); }
+    if (G.hp <= 0) {
+      G.hp = 0;
+      G.state = "dead";
+      G.phaseT = 0;
+      if (G.floor > best) {
+        best = G.floor;
+        try { localStorage.setItem(BEST_KEY, String(best)); } catch (err) {}
+      }
+      sfx.dead();
+      return;
+    }
+  } else {
+    e.block += 5 + Math.floor(G.floor / 2);
+    addFloater(IW / 2 + 20, 52, "BLK", PAL.A);
+    sfx.block();
+  }
+  G.phase = "enemyEnd";
+  G.phaseT = 0.4;
+}
+
+function startPlayerTurn() {
+  G.block = 0;
+  G.energy = G.maxEnergy;
+  drawCards(5);
+  G.phase = "player";
+}
+
+function openReward() {
+  var pool = shuffle(REWARD_POOL.slice());
+  G.rewards = pool.slice(0, 3);
+  G.state = "reward";
+}
+
+function pickReward(i) {
+  if (i >= 0) {
+    G.deck.push(G.rewards[i]);
+    sfx.pick();
+  } else {
+    var h = Math.min(6, G.maxHp - G.hp);
+    G.hp += h;
+    sfx.heal();
+  }
+  // босс повержен — постоянный бонус
+  if (G.floor % 5 === 0) {
+    G.maxHp += 5;
+    G.hp += 5;
+  }
+  startBattle();
+}
+
+// ---------------------------------------------------------------------------
+// Ввод: тап/клик по зонам (зоны пересчитываются при отрисовке)
+// ---------------------------------------------------------------------------
+function hitTest(ix, iy) {
+  for (var i = G.zones.length - 1; i >= 0; i--) {
+    var z = G.zones[i];
+    if (ix >= z.x && ix < z.x + z.w && iy >= z.y && iy < z.y + z.h) { return z; }
+  }
+  return null;
+}
+
+function pointerDown(clientX, clientY) {
+  initAudio();
+  var r = canvas.getBoundingClientRect();
+  var ix = (clientX - r.left) / r.width * IW;
+  var iy = (clientY - r.top) / r.height * IH;
+
+  if (G.state === "title") { startBattle(); return; }
+  if (G.state === "dead") {
+    if (G.time > 0.8) { newRun(); G.state = "title"; }
+    return;
+  }
+  var z = hitTest(ix, iy);
+  if (!z) { return; }
+  if (z.t === "card") { playCard(z.i); }
+  else if (z.t === "end") { endTurn(); }
+  else if (z.t === "reward") { pickReward(z.i); }
+  else if (z.t === "skip") { pickReward(-1); }
+}
+
+document.addEventListener("touchstart", function (e) {
+  e.preventDefault();
+  if (e.changedTouches.length > 0) {
+    pointerDown(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+  }
+}, { passive: false });
+["touchmove", "touchend", "touchcancel"].forEach(function (ev) {
+  document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+});
+document.addEventListener("mousedown", function (e) { pointerDown(e.clientX, e.clientY); });
+document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+
+window.addEventListener("keydown", function (e) {
+  initAudio();
+  if (e.code === "Space" || e.code === "Enter") {
+    e.preventDefault();
+    if (G.state === "title") { startBattle(); }
+    else if (G.state === "dead" && G.time > 0.8) { newRun(); G.state = "title"; }
+    else if (G.state === "battle") { endTurn(); }
+  }
+  var n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 5) {
+    if (G.state === "battle") { playCard(n - 1); }
+    else if (G.state === "reward" && n <= 3) { pickReward(n - 1); }
+  }
+  if (e.key === "0" && G.state === "reward") { pickReward(-1); }
+});
+
+// ---------------------------------------------------------------------------
+// Обновление
+// ---------------------------------------------------------------------------
+function update(dt) {
+  G.time += dt;
+  if (G.shake > 0) { G.shake -= dt; }
+  if (G.enemyFlash > 0) { G.enemyFlash -= dt; }
+  if (G.playerFlash > 0) { G.playerFlash -= dt; }
+
+  for (var i = G.floaters.length - 1; i >= 0; i--) {
+    var f = G.floaters[i];
+    f.life -= dt;
+    f.y -= 12 * dt;
+    if (f.life <= 0) { G.floaters.splice(i, 1); }
+  }
+
+  if (G.state === "battle" && G.phase !== "player") {
+    G.phaseT -= dt;
+    if (G.phaseT <= 0) {
+      if (G.phase === "enemyPoison") { enemyPoisonTick(); }
+      else if (G.phase === "enemyAct") { enemyAct(); }
+      else if (G.phase === "enemyEnd") { startPlayerTurn(); }
+      else if (G.phase === "dying") { openReward(); }
+    }
+  }
+  if (G.state === "dead") { /* время идёт для блокировки мгновенного рестарта */ }
+}
+
+// ---------------------------------------------------------------------------
+// Отрисовка
+// ---------------------------------------------------------------------------
+function drawPanel(x, y, w, h, fill, border) {
+  ctx.fillStyle = border || PAL.K;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = fill;
+  ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+}
+
+function drawBar(x, y, w, h, val, max, color, back) {
+  ctx.fillStyle = PAL.K;
+  ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  ctx.fillStyle = back || PAL.D;
+  ctx.fillRect(x, y, w, h);
+  var fw = Math.max(0, Math.round(w * val / max));
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, fw, h);
+}
+
+function drawBackground() {
+  // кирпичная стена подземелья
+  ctx.fillStyle = PAL.K;
+  ctx.fillRect(0, 0, IW, IH);
+  ctx.fillStyle = "#20233a";
+  for (var y = 0; y < IH; y += 10) {
+    for (var x = -8; x < IW; x += 16) {
+      var off = (y / 10) % 2 ? 8 : 0;
+      ctx.fillRect(x + off, y, 14, 8);
+    }
+  }
+  // факелы
+  var fl = Math.floor(G.time * 6) % 2;
+  ctx.fillStyle = PAL.B;
+  ctx.fillRect(14, 30, 2, 6); ctx.fillRect(IW - 16, 30, 2, 6);
+  ctx.fillStyle = fl ? PAL.O : PAL.Y;
+  ctx.fillRect(13, 26, 4, 4); ctx.fillRect(IW - 17, 26, 4, 4);
+  ctx.fillStyle = fl ? PAL.Y : PAL.O;
+  ctx.fillRect(14, 24, 2, 3); ctx.fillRect(IW - 16, 24, 2, 3);
+}
+
+function drawCardFace(x, y, w, h, key, dim, zoneType, zoneI) {
+  var c = CARD_DEFS[key];
+  drawPanel(x, y, w, h, dim ? PAL.E : PAL.Y, PAL.K);
+  ctx.fillStyle = dim ? PAL.S : PAL.W;
+  ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+  // иконка
+  var ic = SPR[c.icon];
+  ctx.drawImage(ic, x + Math.round((w - 9) / 2), y + 4);
+  // имя и описание
+  drawTextC(ctx, c.name, x + w / 2, y + 15, PAL.K);
+  drawTextC(ctx, c.desc, x + w / 2, y + 22, dim ? PAL.E : PAL.P);
+  // стоимость
+  drawPanel(x - 1, y - 1, 7, 7, dim ? PAL.E : PAL.B, PAL.K);
+  drawText(ctx, String(c.cost), x + 1, y, PAL.W);
+  G.zones.push({ t: zoneType, i: zoneI, x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
+}
+
+function drawBattle() {
+  var shx = G.shake > 0 ? Math.round((Math.random() - 0.5) * 4) : 0;
+  ctx.save();
+  ctx.translate(shx, 0);
+
+  // --- верхняя панель ---
+  var floorTxt = "FLOOR " + G.floor + (G.enemy.def.boss ? " - BOSS" : "");
+  drawText(ctx, floorTxt, 4, 4, G.enemy.def.boss ? PAL.R : PAL.W);
+  if (best > 0) {
+    var bestTxt = "BEST " + best;
+    drawText(ctx, bestTxt, IW - textW(bestTxt) - 4, 4, PAL.S);
+  }
+
+  // --- враг ---
+  var e = G.enemy;
+  var sp = SPR[e.def.key];
+  var esc = e.def.boss ? 4 : 3;
+  var ew = sp.width * esc, eh = sp.height * esc;
+  var ex = Math.round((IW - ew) / 2);
+  var ey = 58 - eh + Math.round(Math.sin(G.time * 2.5) * 2);
+
+  // намерение
+  var it = G.phase === "player" || G.phase === "enemyPoison" ? intent() : null;
+  if (it && G.hp > 0) {
+    if (it === "a") {
+      ctx.drawImage(SPR.mSword, IW / 2 - 12, 14);
+      drawText(ctx, String(e.atk), IW / 2 - 2, 15, PAL.R);
+    } else {
+      ctx.drawImage(SPR.mShield, IW / 2 - 12, 14);
+      drawText(ctx, "BLK", IW / 2 - 2, 15, PAL.A);
+    }
+  }
+
+  if (G.enemyFlash > 0 && Math.floor(G.time * 30) % 2 === 0) {
+    // вспышка при уроне — рисуем белым силуэтом
+    ctx.save();
+    ctx.filter = "brightness(3)";
+    ctx.drawImage(sp, ex, ey, ew, eh);
+    ctx.restore();
+  } else {
+    ctx.drawImage(sp, ex, ey, ew, eh);
+  }
+
+  // hp врага
+  drawTextC(ctx, e.name, IW / 2, 64, PAL.W);
+  drawBar(IW / 2 - 30, 71, 60, 4, e.hp, e.maxHp, PAL.R);
+  drawTextC(ctx, e.hp + "/" + e.maxHp, IW / 2, 77, PAL.W);
+  var sx = IW / 2 + 34;
+  if (e.block > 0) {
+    ctx.drawImage(SPR.mShield, sx, 69);
+    drawText(ctx, String(e.block), sx + 8, 70, PAL.A);
+    sx += 20;
+  }
+  if (e.poison > 0) {
+    ctx.drawImage(SPR.mSkull, IW / 2 - 42 - 14, 69);
+    drawText(ctx, String(e.poison), IW / 2 - 42 - 6, 70, PAL.G);
+  }
+
+  // --- игрок ---
+  var py = 92;
+  if (G.playerFlash > 0 && Math.floor(G.time * 30) % 2 === 0) {
+    ctx.fillStyle = "rgba(177,62,83,0.35)";
+    ctx.fillRect(0, py - 4, IW, 32);
+  }
+  ctx.drawImage(SPR.heart, 6, py);
+  drawBar(16, py + 1, 62, 5, G.hp, G.maxHp, PAL.L);
+  drawText(ctx, G.hp + "/" + G.maxHp, 82, py, PAL.W);
+  // энергия
+  for (var i = 0; i < G.maxEnergy; i++) {
+    if (i < G.energy) {
+      ctx.drawImage(SPR.bolt, 8 + i * 8, py + 10);
+    } else {
+      ctx.fillStyle = PAL.D;
+      ctx.fillRect(9 + i * 8, py + 11, 3, 5);
+    }
+  }
+  drawText(ctx, "ENERGY", 8 + G.maxEnergy * 8 + 4, py + 11, PAL.S);
+  // блок игрока
+  if (G.block > 0) {
+    ctx.drawImage(SPR.mShield, 92, py + 10);
+    drawText(ctx, String(G.block), 101, py + 11, PAL.A);
+  }
+
+  // --- рука ---
+  var hy = 128, cw = 26, chh = 30, gap = 2;
+  var total = G.hand.length * (cw + gap) - gap;
+  var hx0 = Math.round((IW - total) / 2);
+  drawText(ctx, "HAND", 4, hy - 8, PAL.E);
+  var pileTxt = G.drawPile.length + "/" + G.discard.length;
+  drawText(ctx, pileTxt, IW - textW(pileTxt) - 4, hy - 8, PAL.E);
+  for (i = 0; i < G.hand.length; i++) {
+    var key = G.hand[i];
+    var dim = CARD_DEFS[key].cost > G.energy || G.phase !== "player";
+    drawCardFace(hx0 + i * (cw + gap), hy, cw, chh, key, dim, "card", i);
+  }
+  if (G.hand.length === 0 && G.phase === "player") {
+    drawTextC(ctx, "NO CARDS", IW / 2, hy + 12, PAL.E);
+  }
+
+  // --- кнопка конца хода ---
+  var by = 168, bw = 56, bh = 14;
+  var bx = Math.round((IW - bw) / 2);
+  var active = G.phase === "player";
+  drawPanel(bx, by, bw, bh, active ? PAL.R : PAL.D, PAL.K);
+  drawTextC(ctx, "END TURN", bx + bw / 2, by + 5, active ? PAL.W : PAL.E);
+  if (active) { G.zones.push({ t: "end", i: 0, x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 }); }
+
+  // подсказка на первом этаже
+  if (G.floor === 1 && G.time < 8) {
+    drawTextC(ctx, "TAP CARD TO PLAY IT", IW / 2, 190, PAL.S);
+    drawTextC(ctx, "SWORD = ENEMY ATTACK", IW / 2, 198, PAL.S);
+  }
+
+  ctx.restore();
+}
+
+function drawReward() {
+  drawTextC(ctx, "VICTORY!", IW / 2, 20, PAL.Y, 2);
+  drawTextC(ctx, "FLOOR " + G.floor + " CLEARED", IW / 2, 38, PAL.W);
+  if (G.floor % 5 === 0) {
+    drawTextC(ctx, "BOSS BONUS: MAX HP +5", IW / 2, 48, PAL.L);
+  }
+  drawTextC(ctx, "CHOOSE A CARD:", IW / 2, 62, PAL.S);
+
+  var cw = 34, chh = 40, gap = 6;
+  var total = 3 * (cw + gap) - gap;
+  var x0 = Math.round((IW - total) / 2);
+  for (var i = 0; i < 3; i++) {
+    drawCardFace(x0 + i * (cw + gap), 74, cw, chh, G.rewards[i], false, "reward", i);
+  }
+
+  var bw = 72, bh = 14, bx = Math.round((IW - bw) / 2), by = 132;
+  drawPanel(bx, by, bw, bh, PAL.T, PAL.K);
+  drawTextC(ctx, "SKIP: HEAL +6", bx + bw / 2, by + 5, PAL.W);
+  G.zones.push({ t: "skip", i: 0, x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 });
+
+  ctx.drawImage(SPR.heart, 40, 160);
+  drawText(ctx, G.hp + "/" + G.maxHp, 50, 161, PAL.W);
+  drawText(ctx, "DECK " + G.deck.length, 86, 161, PAL.S);
+}
+
+function drawTitle() {
+  drawTextC(ctx, "DUNGEON", IW / 2, 40, PAL.Y, 3);
+  drawTextC(ctx, "DECK", IW / 2, 60, PAL.O, 3);
+
+  // декоративные монстры
+  ctx.drawImage(SPR.slime, 16, 92, 32, 20);
+  ctx.drawImage(SPR.demon, IW - 52, 86, 32, 30);
+  ctx.drawImage(SPR.bones, IW / 2 - 12, 84, 24, 30);
+
+  drawTextC(ctx, "A CARD ROGUELIKE", IW / 2, 126, PAL.W);
+  drawTextC(ctx, "BEAT MONSTERS WITH CARDS", IW / 2, 142, PAL.S);
+  drawTextC(ctx, "3 ENERGY PER TURN", IW / 2, 150, PAL.S);
+  drawTextC(ctx, "EVERY 5TH FLOOR - BOSS", IW / 2, 158, PAL.S);
+  if (best > 0) { drawTextC(ctx, "BEST FLOOR: " + best, IW / 2, 174, PAL.L); }
+
+  if (Math.floor(G.time * 2) % 2 === 0) {
+    drawTextC(ctx, "TAP TO START", IW / 2, 200, PAL.C);
+  }
+}
+
+function drawDead() {
+  ctx.fillStyle = "rgba(26,28,44,0.8)";
+  ctx.fillRect(0, 0, IW, IH);
+  drawTextC(ctx, "YOU DIED", IW / 2, 70, PAL.R, 2);
+  drawTextC(ctx, "FLOOR " + G.floor, IW / 2, 96, PAL.W);
+  if (G.floor >= best && best > 0) {
+    drawTextC(ctx, "NEW BEST!", IW / 2, 108, PAL.Y);
+  } else {
+    drawTextC(ctx, "BEST " + best, IW / 2, 108, PAL.S);
+  }
+  if (G.time > 0.8 && Math.floor(G.time * 2) % 2 === 0) {
+    drawTextC(ctx, "TAP TO RESTART", IW / 2, 140, PAL.C);
+  }
+}
+
+function draw() {
+  G.zones = [];
+  drawBackground();
+  if (G.state === "title") { drawTitle(); }
+  else if (G.state === "battle") { drawBattle(); }
+  else if (G.state === "reward") { drawReward(); }
+  else if (G.state === "dead") { drawBattle(); drawDead(); }
+
+  // всплывающие числа
+  for (var i = 0; i < G.floaters.length; i++) {
+    var f = G.floaters[i];
+    drawTextC(ctx, f.text, f.x, Math.round(f.y), f.color);
+  }
+}
+
+// dead: время нужно и там
+var lastT = performance.now();
+function frame(now) {
+  var dt = Math.max(0, Math.min(0.033, (now - lastT) / 1000));
+  lastT = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
