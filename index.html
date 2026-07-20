@@ -39,16 +39,18 @@
 "use strict";
 
 // ============================================================================
-// ДРАКОНЬЕ ПОДЗЕМЕЛЬЕ — карточный рогалик
+// ДРАКОНЬЕ ПОДЗЕМЕЛЬЕ v2 — карточный рогалик
 //
-// Сюжет: дракон похитил принцессу и утащил её на дно подземелья.
-// Рыцарь спускается на 15 этажей. На 5-м и 10-м — случайные
-// стражи-минибоссы, за победу над ними — случайные постоянные реликвии.
-// На 15-м — дракон. Его пламя бьёт сквозь щит.
+// 20 этажей. Стражи на 5/10/15 (реликвии), события на 3/8/13/18
+// (зеркало, кузнец, костёр, торговец), дракон на 20-м.
+// Монеты, прокачка карт, сумка с лимитом колоды, объединение дублей.
 // ============================================================================
 
 var IW = 144, IH = 256;
-var FLOORS = 15;
+var FLOORS = 20;
+var DECK_MAX = 14;
+var EVENT_FLOORS = [3, 8, 13, 18];
+var MINI_FLOORS = [5, 10, 15];
 
 var PAL = {
   K: "#1a1c2c", P: "#5d275d", R: "#b13e53", O: "#ef7d57",
@@ -59,8 +61,7 @@ var PAL = {
 };
 
 // ---------------------------------------------------------------------------
-// Пиксельный кириллический шрифт, высота 5, переменная ширина.
-// ВЕСЬ текст игры рисуется этим шрифтом попиксельно.
+// Пиксельный кириллический шрифт (высота 5, переменная ширина)
 // ---------------------------------------------------------------------------
 var FONT = {
   "А": ["010","101","111","101","101"],
@@ -108,8 +109,10 @@ var FONT = {
   "+": ["000","010","111","010","000"],
   "-": ["000","000","111","000","000"],
   "/": ["001","001","010","100","100"],
+  "x": ["000","101","010","101","000"],
   ":": ["0","1","0","1","0"],
   ".": ["0","0","0","0","1"],
+  ",": ["00","00","00","01","10"],
   "!": ["1","1","1","0","1"],
   "?": ["110","001","010","000","010"],
   "=": ["000","111","000","111","000"],
@@ -290,6 +293,40 @@ SPR.demon = makeSprite([
   "...KRRKRRKRRK...",
   "....KK.KK.KK...."
 ]);
+SPR.knight2 = makeSprite([
+  ".....KKKKKK.....",
+  "....KSSSSSSK....",
+  "...KSSSSSSSSK...",
+  "...KSKKSSKKSK...",
+  "...KSKCSSCKSK...",
+  "...KSSSSSSSSK...",
+  "...KSSKKKKSSK...",
+  "..KKSSSSSSSSKK..",
+  ".KSKSSSSSSSSKSK.",
+  "KSSKSSKSSKSSKSSK",
+  "KWWKSSKSSKSSKWWK",
+  ".KKKSSSSSSSSKKK.",
+  "...KSSSSSSSSK...",
+  "...KSSKSSKSSK...",
+  "...KSSK..KSSK...",
+  "..KKKK....KKKK.."
+]);
+SPR.vampire = makeSprite([
+  "..KKK....KKK..",
+  ".KDDK....KDDK.",
+  ".KDDKKKKKKDDK.",
+  ".KDKWWWWWWKDK.",
+  ".KDKWKWWKWKDK.",
+  ".KDKWWWWWWKDK.",
+  ".KDKWKWWKWKDK.",
+  ".KDDKWWWWKDDK.",
+  ".KDDDKKKKDDDK.",
+  ".KDDDDDDDDDDK.",
+  ".KDDDRRRRDDDK.",
+  ".KDDDDDDDDDDK.",
+  "..KDDDDDDDDK..",
+  "...KKKKKKKK..."
+]);
 
 // --- стражи (минибоссы) ---
 SPR.ogr = makeSprite([
@@ -345,6 +382,24 @@ SPR.golem = makeSprite([
   "...KSSSKKSSSK...",
   "...KSSSK.KSSSK..",
   "..KKKKK...KKKKK."
+]);
+SPR.blackKnight = makeSprite([
+  "..R....KKKKKK...",
+  "..RR..KDDDDDDK..",
+  "..RRRKDDDDDDDDK.",
+  "...R.KDKKDDKKDK.",
+  "...R.KDKRDDRKDK.",
+  ".....KDDDDDDDDK.",
+  ".....KDDKKKKDDK.",
+  "....KKDDDDDDDDKK",
+  "...KDKDDDDDDDDKD",
+  "..KDDKDDKDDKDDKD",
+  "..KWWKDDKDDKDDKW",
+  "...KKKDDDDDDDDKK",
+  ".....KDDDDDDDDK.",
+  ".....KDDKDDKDDK.",
+  ".....KDDK..KDDK.",
+  "....KKKK....KKKK"
 ]);
 
 // --- дракон ---
@@ -402,6 +457,90 @@ SPR.knight = makeSprite([
   ".KNKKNK...",
   ".KNK.KNK..",
   "KKK...KKK."
+]);
+
+// --- события ---
+SPR.mirror = makeSprite([
+  "..KKKKKKKK..",
+  ".KYYYYYYYYK.",
+  "KYKCCWCCCKYK",
+  "KYKCWCCCCKYK",
+  "KYKWCCCPCKYK",
+  "KYKCCCPPCKYK",
+  "KYKCCPPPCKYK",
+  "KYKCCCPCCKYK",
+  "KYKCCCCCWKYK",
+  "KYKCCCCWCKYK",
+  ".KYYYYYYYYK.",
+  "..KKKKKKKK..",
+  "....KYYK....",
+  "...KYYYYK..."
+]);
+SPR.anvil = makeSprite([
+  "..KKKKKKKKKKK..",
+  ".KSSSSSSSSSSSK.",
+  ".KKKKSSSSSKKKK.",
+  "....KSSSSSK....",
+  "....KSSSSSK....",
+  "..KKSSSSSSSKK..",
+  ".KSSSSSSSSSSSK.",
+  ".KKKKKKKKKKKKK."
+]);
+SPR.smith = makeSprite([
+  "...KKKK...",
+  "..KOOOOK..",
+  "..KOKOKK..",
+  "..KOOOOK..",
+  "...KKKK...",
+  "..KRRRRK..",
+  ".KRRRRRRK.",
+  "KORRRRRROK",
+  "KOKRRRRKOK",
+  ".KKRRRRKK.",
+  "..KNNNNK..",
+  "..KNKKNK..",
+  ".KKK..KKK."
+]);
+SPR.fire1 = makeSprite([
+  "....K.......",
+  "...KOK...K..",
+  "..KOYOK.KOK.",
+  ".KOYYYOKOYK.",
+  ".KOYWYYOOYK.",
+  "KOYWWWYYOOK.",
+  "KOYWWWWYOK..",
+  ".KOYWWYOK...",
+  "..KKKKKK....",
+  ".KBKKBKKBK..",
+  "KBBBKBBBKBK."
+]);
+SPR.fire2 = makeSprite([
+  "......K.....",
+  "..K..KOK....",
+  ".KOK.KOYK...",
+  ".KYOKOYYOK..",
+  ".KOYYOWYOK..",
+  ".KOYWWWYOOK.",
+  "KOYWWWWWYOK.",
+  ".KOYWWWYOK..",
+  "..KKKKKK....",
+  ".KBKKBKKBK..",
+  "KBBBKBBBKBK."
+]);
+SPR.merchant = makeSprite([
+  "...KKKKKK...",
+  "..KTTTTTTK..",
+  ".KTTTTTTTTK.",
+  ".KTKKKKKKTK.",
+  ".KTKYKKYKTK.",
+  ".KTKKKKKKTK.",
+  ".KTTTTTTTTK.",
+  "KTTKTTTTKTTK",
+  "KTTKTTTTKTTK",
+  "KTTTTTTTTTTK",
+  ".KTTTTTTTTK.",
+  ".KTTKTTKTTK.",
+  ".KKKK..KKKK."
 ]);
 
 // --- иконки карт (9x9) ---
@@ -526,6 +665,17 @@ SPR.iHammer = makeSprite([
   "....KBK..",
   ".....K..."
 ]);
+SPR.iDark = makeSprite([
+  "......KK.",
+  ".....KPPK",
+  "....KPPK.",
+  "...KPPK..",
+  "K.KPPK...",
+  ".KKPK....",
+  ".KRK.....",
+  "KRKK.....",
+  "K..K....."
+]);
 
 // --- иконки реликвий (9x9) ---
 SPR.rHeart = makeSprite([
@@ -594,6 +744,39 @@ SPR.rAmulet = makeSprite([
   "...KKK...",
   "........."
 ]);
+SPR.rFeather = makeSprite([
+  "......KK.",
+  ".....KCCK",
+  "....KCCCK",
+  "...KCCCK.",
+  "..KCCCK..",
+  ".KCCCK...",
+  "KCCCK....",
+  "KWCK.....",
+  ".KK......"
+]);
+SPR.rPurse = makeSprite([
+  "...KKK...",
+  "..K...K..",
+  ".KYYYYYK.",
+  "KYYYYYYYK",
+  "KYYKYKYYK",
+  "KYYYYYYYK",
+  ".KYYYYYK.",
+  "..KKKKK..",
+  "........."
+]);
+SPR.rShoe = makeSprite([
+  ".KK...KK.",
+  "KSSK.KSSK",
+  "KSSK.KSSK",
+  "KSSK.KSSK",
+  "KSSKKKSSK",
+  "KSSSSSSSK",
+  ".KSSSSSK.",
+  "..KK.KK..",
+  "........."
+]);
 
 // --- мелкие иконки ---
 SPR.heart = makeSprite([
@@ -612,6 +795,25 @@ SPR.bolt = makeSprite([
   "..KYK",
   ".KYK.",
   ".KK.."
+]);
+SPR.coin = makeSprite([
+  ".KKKK.",
+  "KYYYYK",
+  "KYOOYK",
+  "KYOOYK",
+  "KYYYYK",
+  ".KKKK."
+]);
+SPR.bag = makeSprite([
+  "...KK....",
+  "..K..K...",
+  ".KBBBBK..",
+  "KBBBBBBK.",
+  "KBBYYBBK.",
+  "KBBYYBBK.",
+  "KBBBBBBK.",
+  ".KBBBBK..",
+  "..KKKK..."
 ]);
 SPR.mSword = makeSprite([
   "....KK.",
@@ -665,70 +867,135 @@ SPR.mStun = makeSprite([
   "..KK..",
   "..KY.."
 ]);
+SPR.mWeb = makeSprite([
+  "K..K..K",
+  ".K.K.K.",
+  "..KKK..",
+  "KKKKKKK",
+  "..KKK..",
+  ".K.K.K.",
+  "K..K..K"
+]);
+SPR.mDrain = makeSprite([
+  "..KK...",
+  ".KRRK..",
+  ".KRRK..",
+  "KRRRRK.",
+  "KRRRRK.",
+  ".KRRK..",
+  "..KK..."
+]);
 
 // ---------------------------------------------------------------------------
-// Карты
+// Карты. Прокачанная версия "+": урон/щит/хил/яд x1.5, добор +1
 // ---------------------------------------------------------------------------
 var CARD_DEFS = {
-  udar:  { name: "УДАР",  cost: 1, icon: "iSword",  desc: "УРОН 6",  dmg: 6 },
-  rubka: { name: "РУБКА", cost: 1, icon: "iSword",  desc: "УРОН 9",  dmg: 9 },
-  nozh:  { name: "НОЖ",   cost: 0, icon: "iDagger", desc: "УРОН 3",  dmg: 3 },
-  blok:  { name: "БЛОК",  cost: 1, icon: "iShield", desc: "ЩИТ 5",   block: 5 },
-  stena: { name: "СТЕНА", cost: 1, icon: "iWall",   desc: "ЩИТ 9",   block: 9 },
-  ogon:  { name: "ОГОНЬ", cost: 2, icon: "iFire",   desc: "УРОН 14", dmg: 14 },
-  bomba: { name: "БОМБА", cost: 3, icon: "iBomb",   desc: "УРОН 22", dmg: 22 },
-  zelye: { name: "ЗЕЛЬЕ", cost: 1, icon: "iPotion", desc: "ХП +6",   heal: 6 },
-  yad:   { name: "ЯД",    cost: 1, icon: "iSkull",  desc: "ЯД 5",    poison: 5 },
-  vamp:  { name: "ВАМП",  cost: 2, icon: "iDrain",  desc: "УРОН 7",  desc2: "ХП +3", dmg: 7, heal: 3 },
-  ryvok: { name: "РЫВОК", cost: 1, icon: "iDraw",   desc: "ДОБОР 2", draw: 2 },
-  molot: { name: "МОЛОТ", cost: 2, icon: "iHammer", desc: "УРОН 5",  desc2: "СТАН", dmg: 5, stun: 1 }
+  udar:  { name: "УДАР",  cost: 1, icon: "iSword",  dmg: 6 },
+  rubka: { name: "РУБКА", cost: 1, icon: "iSword",  dmg: 9 },
+  nozh:  { name: "НОЖ",   cost: 0, icon: "iDagger", dmg: 3 },
+  blok:  { name: "БЛОК",  cost: 1, icon: "iShield", block: 5 },
+  stena: { name: "СТЕНА", cost: 1, icon: "iWall",   block: 9 },
+  ogon:  { name: "ОГОНЬ", cost: 2, icon: "iFire",   dmg: 14 },
+  bomba: { name: "БОМБА", cost: 3, icon: "iBomb",   dmg: 22 },
+  zelye: { name: "ЗЕЛЬЕ", cost: 1, icon: "iPotion", heal: 6 },
+  yad:   { name: "ЯД",    cost: 1, icon: "iSkull",  poison: 5 },
+  vamp:  { name: "ВАМП",  cost: 2, icon: "iDrain",  dmg: 7, heal: 3 },
+  ryvok: { name: "РЫВОК", cost: 1, icon: "iDraw",   draw: 2 },
+  molot: { name: "МОЛОТ", cost: 2, icon: "iHammer", dmg: 4, stun: 1 },
+  tma:   { name: "ТЬМА",  cost: 1, icon: "iDark",   dmg: 15, self: 3 }
 };
 var REWARD_POOL = ["rubka", "nozh", "stena", "ogon", "bomba", "zelye", "yad", "vamp", "ryvok", "molot"];
 
+var cardCache = {};
+function cardData(key) {
+  if (cardCache[key]) { return cardCache[key]; }
+  var up = key.charAt(key.length - 1) === "+";
+  var base = CARD_DEFS[up ? key.slice(0, -1) : key];
+  var c = {
+    key: key, up: up,
+    name: base.name + (up ? "+" : ""),
+    cost: base.cost, icon: base.icon,
+    dmg: base.dmg || 0, block: base.block || 0, heal: base.heal || 0,
+    poison: base.poison || 0, draw: base.draw || 0, stun: base.stun || 0,
+    self: base.self || 0
+  };
+  if (up) {
+    if (c.dmg) { c.dmg = Math.ceil(c.dmg * 1.5); }
+    if (c.block) { c.block = Math.ceil(c.block * 1.5); }
+    if (c.heal) { c.heal = Math.ceil(c.heal * 1.5); }
+    if (c.poison) { c.poison = Math.ceil(c.poison * 1.5); }
+    if (c.draw) { c.draw += 1; }
+  }
+  // описание
+  var d1 = "", d2 = "";
+  if (c.dmg) { d1 = "УРОН " + c.dmg; }
+  if (c.block) { d1 = d1 ? d1 : "ЩИТ " + c.block; }
+  if (c.heal && c.dmg) { d2 = "ХП +" + c.heal; }
+  else if (c.heal) { d1 = "ХП +" + c.heal; }
+  if (c.poison) { d1 = "ЯД " + c.poison; }
+  if (c.draw) { d1 = "ДОБОР " + c.draw; }
+  if (c.stun) { d2 = "СТАН"; }
+  if (c.self) { d2 = "СЕБЕ -" + c.self; }
+  c.desc = d1; c.desc2 = d2;
+  cardCache[key] = c;
+  return c;
+}
+
 // ---------------------------------------------------------------------------
-// Реликвии — постоянные бонусы за стражей
+// Реликвии
 // ---------------------------------------------------------------------------
 var RELIC_DEFS = {
-  serdce:  { name: "СЕРДЦЕ",  icon: "rHeart",  desc: "МАКС ХП +12" },
-  kristall:{ name: "КРИСТАЛЛ",icon: "rMana",   desc: "ЭНЕРГИЯ +1" },
-  tochilo: { name: "ТОЧИЛО",  icon: "rWhet",   desc: "УРОН КАРТ +2" },
-  pancir:  { name: "ПАНЦИРЬ", icon: "rShell",  desc: "ЩИТ КАРТ +2" },
-  flyaga:  { name: "ФЛЯГА",   icon: "rFlask",  desc: "+5 ХП ЗА БОЙ" },
-  amulet:  { name: "АМУЛЕТ",  icon: "rAmulet", desc: "ЯД КАРТ +2" }
+  serdce:  { name: "СЕРДЦЕ",  icon: "rHeart",   desc: "МАКС ХП +12" },
+  kristall:{ name: "КРИСТАЛЛ",icon: "rMana",    desc: "ЭНЕРГИЯ +1" },
+  pero:    { name: "ПЕРО",    icon: "rFeather", desc: "РУКА 6 КАРТ" },
+  tochilo: { name: "ТОЧИЛО",  icon: "rWhet",    desc: "УРОН КАРТ +2" },
+  pancir:  { name: "ПАНЦИРЬ", icon: "rShell",   desc: "ЩИТ КАРТ +2" },
+  flyaga:  { name: "ФЛЯГА",   icon: "rFlask",   desc: "+5 ХП ЗА БОЙ" },
+  amulet:  { name: "АМУЛЕТ",  icon: "rAmulet",  desc: "ЯД КАРТ +2" },
+  koshel:  { name: "КОШЕЛЬ",  icon: "rPurse",   desc: "+7 МОНЕТ ЗА БОЙ" },
+  podkova: { name: "ПОДКОВА", icon: "rShoe",    desc: "1-Я АТАКА БОЯ Х2" }
 };
 function hasRelic(k) { return G.relics.indexOf(k) >= 0; }
 
 // ---------------------------------------------------------------------------
 // Монстры. Действия: a - атака, d - щит, h - лечит себя,
-// f - пламя (сквозь щит!)
+// f - пламя (сквозь щит), s - сеть/стан игрока, v - вампиризм
 // ---------------------------------------------------------------------------
 var TIER1 = [
   { key: "slime",  name: "СЛИЗЕНЬ", hp: 14, atk: 5, pattern: "aad" },
   { key: "bat",    name: "МЫШЬ",    hp: 12, atk: 4, pattern: "aaa" },
-  { key: "spider", name: "ПАУК",    hp: 15, atk: 5, pattern: "ada" }
+  { key: "spider", name: "ПАУК",    hp: 16, atk: 4, pattern: "asa" }
 ];
 var TIER2 = [
-  { key: "bones", name: "СКЕЛЕТ",  hp: 24, atk: 8,  pattern: "ada" },
-  { key: "eye",   name: "ГЛАЗ",    hp: 28, atk: 7,  pattern: "daa" },
-  { key: "ghost", name: "ПРИЗРАК", hp: 22, atk: 9,  pattern: "aad" }
+  { key: "bones", name: "СКЕЛЕТ",  hp: 26, atk: 8,  pattern: "ada" },
+  { key: "eye",   name: "ГЛАЗ",    hp: 30, atk: 7,  pattern: "daa" },
+  { key: "ghost", name: "ПРИЗРАК", hp: 24, atk: 9,  pattern: "aad" }
 ];
 var TIER3 = [
-  { key: "demon", name: "ДЕМОН", hp: 38, atk: 11, pattern: "adaa" },
-  { key: "shade", name: "ТЕНЬ",  hp: 34, atk: 12, pattern: "aada" }
+  { key: "demon", name: "ДЕМОН", hp: 40, atk: 11, pattern: "adaa" },
+  { key: "shade", name: "ТЕНЬ",  hp: 36, atk: 12, pattern: "aada" }
+];
+var TIER4 = [
+  { key: "knight2", name: "РЫЦАРЬ", hp: 46, atk: 12, pattern: "asda", stunImmune: true },
+  { key: "vampire", name: "ВАМПИР", hp: 44, atk: 10, pattern: "vdav" }
 ];
 var MINIBOSSES = [
-  { key: "ogr",   name: "ОГР",       hp: 48, atk: 12, pattern: "aada", mini: true },
-  { key: "necro", name: "НЕКРОМАНТ", hp: 44, atk: 9,  pattern: "ahda", heal: 9, mini: true },
-  { key: "golem", name: "ГОЛЕМ",     hp: 55, atk: 10, pattern: "adda", defBonus: 5, mini: true }
+  { key: "ogr",   name: "ОГР",       hp: 50, atk: 13, pattern: "aada", mini: true },
+  { key: "necro", name: "НЕКРОМАНТ", hp: 48, atk: 10, pattern: "ahda", heal: 10, mini: true },
+  { key: "golem", name: "ГОЛЕМ",     hp: 58, atk: 11, pattern: "adda", defBonus: 6, mini: true },
+  { key: "blackKnight", name: "ЧЁРНЫЙ РЫЦАРЬ", hp: 52, atk: 12, pattern: "asda",
+    stunImmune: true, mini: true }
 ];
-var DRAGON = { key: "dragon", name: "ДРАКОН", hp: 95, atk: 14, fire: 11,
-               pattern: "afdaf", boss: true };
+var DRAGON = { key: "dragon", name: "ДРАКОН", hp: 120, atk: 15, fire: 12,
+               pattern: "afdaf", boss: true, stunImmune: true };
 
 var VOICES = [
   "СКОРЕЕ! Я ЗДЕСЬ ВНИЗУ!",
   "БЕРЕГИСЬ ДРАКОНА!",
   "Я ВЕРЮ В ТЕБЯ РЫЦАРЬ!",
-  "ЕГО ПЛАМЯ ЖЖЁТ СКВОЗЬ ЩИТ!"
+  "ЕГО ПЛАМЯ ЖЖЁТ СКВОЗЬ ЩИТ!",
+  "ДРАКОНА НЕ ОГЛУШИТЬ!",
+  "КОПИ МОНЕТЫ ДЛЯ КУЗНЕЦА!"
 ];
 
 // ---------------------------------------------------------------------------
@@ -782,6 +1049,8 @@ var sfx = {
   hurt:   function () { beep(120, 0.25, "sawtooth", 0.16, -60); },
   fire:   function () { beep(100, 0.4, "sawtooth", 0.16, 60); },
   stun:   function () { beep(700, 0.2, "square", 0.1, -400); },
+  coin:   function () { beep(988, 0.07, "square", 0.1); setTimeout(function(){ beep(1319, 0.1, "square", 0.1); }, 60); },
+  forge:  function () { beep(220, 0.1, "square", 0.15, -50); setTimeout(function(){ beep(330, 0.15, "square", 0.12, 100); }, 120); },
   win:    function () { [523, 659, 784].forEach(function (f, i) { setTimeout(function () { beep(f, 0.15, "square", 0.1); }, i * 110); }); },
   boss:   function () { beep(90, 0.5, "sawtooth", 0.14, -30); },
   dead:   function () { [330, 262, 196, 131].forEach(function (f, i) { setTimeout(function () { beep(f, 0.22, "square", 0.1); }, i * 180); }); },
@@ -814,13 +1083,14 @@ function shuffle(a) {
 }
 
 function newRun() {
-  var minis = shuffle(MINIBOSSES.slice());
+  var minis = shuffle(MINIBOSSES.slice()).slice(0, 3);
   G = {
-    state: "title",  // title | intro | battle | reward | relic | ending | dead
+    state: "title",
     introIdx: 0,
     time: 0, stateTime: 0,
     floor: 0,
     hp: 32, maxHp: 32,
+    gold: 15,
     block: 0,
     energy: 3, baseEnergy: 3,
     deck: ["udar", "udar", "udar", "udar", "udar",
@@ -828,56 +1098,74 @@ function newRun() {
     drawPile: [], discard: [], hand: [],
     relics: [],
     relicChoice: [],
-    minis: [minis[0], minis[1]], // стражи этого забега
+    minis: minis,
+    eventOrder: shuffle(["mirror", "smith", "fire", "shop"]),
+    event: null,
+    bag: null,
     voice: "",
     enemy: null,
+    playerStun: false,
+    firstStrikeUsed: false,
     phase: "player", phaseT: 0,
     floaters: [], shake: 0,
-    enemyFlash: 0, playerFlash: 0, fireFlash: 0,
-    rewards: [],
+    enemyFlash: 0, playerFlash: 0, fireFlash: 0, enemyLunge: 0,
+    rewards: [], rewardGold: 0,
+    shopOffers: [],
     zones: []
   };
 }
 newRun();
 
 function maxEnergy() { return G.baseEnergy + (hasRelic("kristall") ? 1 : 0); }
+function handLimit() { return hasRelic("pero") ? 6 : 5; }
 
 function monsterFor(floor) {
   if (floor === FLOORS) { return DRAGON; }
-  if (floor === 5) { return G.minis[0]; }
-  if (floor === 10) { return G.minis[1]; }
-  var pool = floor < 5 ? TIER1 : floor < 10 ? TIER2 : TIER3;
+  var mi = MINI_FLOORS.indexOf(floor);
+  if (mi >= 0) { return G.minis[mi]; }
+  var pool = floor < 5 ? TIER1 : floor < 10 ? TIER2 : floor < 15 ? TIER3 : TIER4;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function startBattle() {
+// следующий этаж: бой или событие
+function nextFloor() {
   G.floor++;
+  if (EVENT_FLOORS.indexOf(G.floor) >= 0) {
+    startEvent();
+  } else {
+    beginBattle();
+  }
+}
+
+function beginBattle() {
   var def = monsterFor(G.floor);
-  var lvl = G.floor - 1;
-  var scale = def.boss ? 0 : def.mini ? lvl : lvl * 2;
+  var tierStart = G.floor < 5 ? 1 : G.floor < 10 ? 6 : G.floor < 15 ? 11 : 16;
+  var scale = (def.boss || def.mini) ? 0 : (G.floor - tierStart) * 2;
   G.enemy = {
     def: def,
     name: def.name,
     hp: def.hp + scale,
     maxHp: def.hp + scale,
-    atk: def.atk + (def.boss || def.mini ? 0 : Math.floor(lvl / 3)),
+    atk: def.atk + ((def.boss || def.mini) ? 0 : Math.floor((G.floor - tierStart) / 2)),
     block: 0, poison: 0, stun: 0,
     step: 0
   };
   G.state = "battle";
   G.phase = "player";
   G.block = 0;
+  G.playerStun = false;
+  G.firstStrikeUsed = false;
   G.drawPile = shuffle(G.deck.slice());
   G.discard = [];
   G.hand = [];
-  drawCards(5);
+  drawCards(handLimit());
   G.energy = maxEnergy();
   if (def.boss || def.mini) { sfx.boss(); }
 }
 
 function drawCards(n) {
   for (var i = 0; i < n; i++) {
-    if (G.hand.length >= 5) { return; }
+    if (G.hand.length >= handLimit()) { return; }
     if (G.drawPile.length === 0) {
       if (G.discard.length === 0) { return; }
       G.drawPile = shuffle(G.discard);
@@ -918,7 +1206,7 @@ function playCard(idx) {
   if (G.state !== "battle" || G.phase !== "player") { return; }
   var key = G.hand[idx];
   if (!key) { return; }
-  var c = CARD_DEFS[key];
+  var c = cardData(key);
   if (c.cost > G.energy) {
     addFloater(IW / 2, 150, "НЕТ ЭНЕРГИИ", PAL.R);
     return;
@@ -928,7 +1216,19 @@ function playCard(idx) {
   G.discard.push(key);
   sfx.card();
   if (c.dmg) {
-    damageEnemy(c.dmg + (hasRelic("tochilo") ? 2 : 0));
+    var d = c.dmg + (hasRelic("tochilo") ? 2 : 0);
+    if (hasRelic("podkova") && !G.firstStrikeUsed) {
+      d *= 2;
+      G.firstStrikeUsed = true;
+      addFloater(IW / 2, 96, "ПОДКОВА Х2!", PAL.Y);
+    } else if (c.dmg) {
+      G.firstStrikeUsed = true;
+    }
+    damageEnemy(d);
+  }
+  if (c.self) {
+    G.hp = Math.max(1, G.hp - c.self);
+    addFloater(IW / 2 - 30, 112, "-" + c.self, PAL.P);
   }
   if (c.block) {
     var b = c.block + (hasRelic("pancir") ? 2 : 0);
@@ -949,9 +1249,15 @@ function playCard(idx) {
     sfx.poison();
   }
   if (c.stun && G.enemy.hp > 0) {
-    G.enemy.stun += c.stun;
-    addFloater(IW / 2 + 22, 44, "СТАН", PAL.Y);
-    sfx.stun();
+    if (G.enemy.def.stunImmune) {
+      addFloater(IW / 2 + 22, 44, "ИММУНИТЕТ!", PAL.S);
+    } else if (G.enemy.stun > 0) {
+      addFloater(IW / 2 + 22, 44, "УЖЕ ОГЛУШЁН", PAL.S);
+    } else {
+      G.enemy.stun = 1;
+      addFloater(IW / 2 + 22, 44, "СТАН", PAL.Y);
+      sfx.stun();
+    }
   }
   if (c.draw) { drawCards(c.draw); }
 }
@@ -1003,7 +1309,8 @@ function enemyAct() {
   }
   var act = intent();
   e.step++;
-  if (act === "a") {
+  G.enemyLunge = 0.3;
+  if (act === "a" || act === "v") {
     var dmg = e.atk;
     var absorbed = Math.min(G.block, dmg);
     G.block -= absorbed;
@@ -1012,9 +1319,13 @@ function enemyAct() {
     G.shake = 0.25;
     addFloater(IW / 2 - 30, 112, "-" + dealt, dealt > 0 ? PAL.R : PAL.S);
     if (dealt > 0) { sfx.hurt(); } else { sfx.block(); }
+    if (act === "v" && dealt > 0) {
+      var vh = Math.min(Math.ceil(dealt / 2), e.maxHp - e.hp);
+      e.hp += vh;
+      addFloater(IW / 2 + 22, 52, "+" + vh, PAL.L);
+    }
     if (hurtPlayer(dealt)) { return; }
   } else if (act === "f") {
-    // пламя дракона — сквозь щит
     var fd = e.def.fire || e.atk;
     G.playerFlash = 0.3;
     G.fireFlash = 0.4;
@@ -1022,13 +1333,17 @@ function enemyAct() {
     addFloater(IW / 2 - 30, 112, "-" + fd + " ОГОНЬ", PAL.O);
     sfx.fire();
     if (hurtPlayer(fd)) { return; }
+  } else if (act === "s") {
+    G.playerStun = true;
+    addFloater(IW / 2 - 30, 112, "СЕТЬ! -1 ЭНЕРГИЯ", PAL.Y);
+    sfx.stun();
   } else if (act === "h") {
     var hh = Math.min(e.def.heal || 8, e.maxHp - e.hp);
     e.hp += hh;
     addFloater(IW / 2 + 22, 52, "+" + hh, PAL.L);
     sfx.heal();
   } else {
-    var eb = 5 + (e.def.defBonus || 0) + Math.floor(G.floor / 3);
+    var eb = 5 + (e.def.defBonus || 0) + Math.floor(G.floor / 4);
     e.block += eb;
     addFloater(IW / 2 + 22, 52, "ЩИТ +" + eb, PAL.A);
     sfx.block();
@@ -1040,7 +1355,12 @@ function enemyAct() {
 function startPlayerTurn() {
   G.block = 0;
   G.energy = maxEnergy();
-  drawCards(5);
+  if (G.playerStun) {
+    G.energy = Math.max(1, G.energy - 1);
+    addFloater(IW / 2, 100, "ОГЛУШЁН: -1 ЭНЕРГИЯ", PAL.Y);
+    G.playerStun = false;
+  }
+  drawCards(handLimit());
   G.phase = "player";
 }
 
@@ -1049,15 +1369,20 @@ function onVictory() {
     G.hp = Math.min(G.maxHp, G.hp + 5);
   }
   if (G.floor === FLOORS) {
-    // дракон повержен!
     G.state = "ending";
     G.stateTime = 0;
     wins++;
     if (G.floor > best) { best = G.floor; }
     save();
     sfx.finale();
-  } else if (G.enemy.def.mini) {
-    // страж: выбор из 2 случайных реликвий + лечение
+    return;
+  }
+  var g = 6 + G.floor + (hasRelic("koshel") ? 7 : 0);
+  if (G.enemy.def.mini) { g += 20; }
+  G.gold += g;
+  G.rewardGold = g;
+  sfx.coin();
+  if (G.enemy.def.mini) {
     G.hp = Math.min(G.maxHp, G.hp + 10);
     var pool = [];
     for (var k in RELIC_DEFS) { if (!hasRelic(k)) { pool.push(k); } }
@@ -1074,13 +1399,17 @@ function onVictory() {
 
 function pickReward(i) {
   if (i >= 0) {
+    if (G.deck.length >= DECK_MAX) {
+      addFloater(IW / 2, 120, "КОЛОДА ПОЛНА!", PAL.R);
+      return;
+    }
     G.deck.push(G.rewards[i]);
     sfx.pick();
   } else {
     G.hp = Math.min(G.maxHp, G.hp + 6);
     sfx.heal();
   }
-  startBattle();
+  nextFloor();
 }
 
 function pickRelic(i) {
@@ -1089,7 +1418,161 @@ function pickRelic(i) {
   G.relics.push(k);
   if (k === "serdce") { G.maxHp += 12; G.hp += 12; }
   sfx.pick();
-  startBattle();
+  nextFloor();
+}
+
+// ---------------------------------------------------------------------------
+// События
+// ---------------------------------------------------------------------------
+function startEvent() {
+  var idx = EVENT_FLOORS.indexOf(G.floor);
+  var key = G.eventOrder[idx % G.eventOrder.length];
+  G.event = { key: key, stage: 0, text: "" };
+  if (key === "shop") {
+    var pool = shuffle(REWARD_POOL.slice()).slice(0, 3);
+    G.shopOffers = pool.map(function (k) {
+      return { key: k, price: 8 + cardData(k).cost * 4 + Math.floor(Math.random() * 5), sold: false };
+    });
+  }
+  G.state = "event";
+}
+
+function eventChoose(i) {
+  var ev = G.event;
+  if (ev.key === "mirror") {
+    if (ev.stage === 0) {
+      if (i === 0) {
+        // найти случайную атакующую карту
+        var idxs = [];
+        for (var j = 0; j < G.deck.length; j++) {
+          if (cardData(G.deck[j]).dmg > 0 && G.deck[j].indexOf("tma") < 0) { idxs.push(j); }
+        }
+        if (idxs.length === 0) {
+          ev.text = "ЗЕРКАЛУ НЕЧЕГО ВЗЯТЬ...";
+        } else {
+          var di = idxs[Math.floor(Math.random() * idxs.length)];
+          var old = cardData(G.deck[di]).name;
+          G.deck[di] = "tma";
+          ev.text = old + " СТАЛА ТЬМОЙ!";
+          sfx.forge();
+        }
+        ev.stage = 1;
+      } else { nextFloor(); }
+    } else { nextFloor(); }
+  } else if (ev.key === "smith") {
+    if (ev.stage === 0) {
+      if (i === 0 && G.gold >= 15) {
+        ev.pay = "gold";
+        openBag("upgrade", "event");
+      } else if (i === 1 && G.maxHp > 10) {
+        ev.pay = "hp";
+        openBag("upgrade", "event");
+      } else if (i === 2) { nextFloor(); }
+    } else { nextFloor(); }
+  } else if (ev.key === "fire") {
+    if (ev.stage === 0) {
+      if (i === 0) {
+        var h = Math.min(12, G.maxHp - G.hp);
+        G.hp += h;
+        ev.text = "+" + h + " ХП. ТЕПЛО...";
+        sfx.heal();
+        ev.stage = 1;
+      } else if (i === 1) {
+        var plain = [];
+        for (var m = 0; m < G.deck.length; m++) {
+          if (!cardData(G.deck[m]).up) { plain.push(m); }
+        }
+        if (plain.length === 0) {
+          ev.text = "ВСЕ КАРТЫ УЖЕ УЛУЧШЕНЫ!";
+        } else {
+          var pi = plain[Math.floor(Math.random() * plain.length)];
+          G.deck[pi] = G.deck[pi] + "+";
+          ev.text = cardData(G.deck[pi]).name + " ЗАКАЛЕНА В ОГНЕ!";
+          sfx.forge();
+        }
+        ev.stage = 1;
+      } else { nextFloor(); }
+    } else { nextFloor(); }
+  } else if (ev.key === "shop") {
+    if (i < 3) {
+      var offer = G.shopOffers[i];
+      if (!offer || offer.sold) { return; }
+      if (G.gold < offer.price) {
+        addFloater(IW / 2, 150, "НЕ ХВАТАЕТ МОНЕТ", PAL.R);
+        return;
+      }
+      if (G.deck.length >= DECK_MAX) {
+        addFloater(IW / 2, 150, "КОЛОДА ПОЛНА!", PAL.R);
+        return;
+      }
+      G.gold -= offer.price;
+      G.deck.push(offer.key);
+      offer.sold = true;
+      sfx.coin();
+    } else { nextFloor(); }
+  }
+}
+
+// кузнец: карта выбрана в сумке
+function smithUpgrade(deckIdx) {
+  var ev = G.event;
+  if (ev.pay === "gold") { G.gold -= 15; }
+  else { G.maxHp -= 5; G.hp = Math.min(G.hp, G.maxHp); }
+  G.deck[deckIdx] = G.deck[deckIdx] + "+";
+  ev.text = cardData(G.deck[deckIdx]).name + " ГОТОВА!";
+  ev.stage = 1;
+  sfx.forge();
+  G.state = "event";
+  G.bag = null;
+}
+
+// ---------------------------------------------------------------------------
+// Сумка (инвентарь)
+// ---------------------------------------------------------------------------
+function openBag(mode, ret) {
+  G.bag = { mode: mode, ret: ret, sel: -1 };
+  G.state = "bag";
+}
+function closeBag() {
+  var ret = G.bag.ret;
+  G.bag = null;
+  G.state = ret;
+}
+function bagDuplicateIdx(sel) {
+  var key = G.deck[sel];
+  if (cardData(key).up) { return -1; }
+  for (var i = 0; i < G.deck.length; i++) {
+    if (i !== sel && G.deck[i] === key) { return i; }
+  }
+  return -1;
+}
+function bagAction(act) {
+  var b = G.bag;
+  if (act === "back") {
+    if (b.mode === "upgrade") { G.state = "event"; G.bag = null; }
+    else { closeBag(); }
+    return;
+  }
+  if (b.sel < 0) { return; }
+  if (act === "merge") {
+    var dup = bagDuplicateIdx(b.sel);
+    if (dup < 0) { return; }
+    var key = G.deck[b.sel];
+    var hi = Math.max(b.sel, dup), lo = Math.min(b.sel, dup);
+    G.deck.splice(hi, 1);
+    G.deck.splice(lo, 1);
+    G.deck.push(key + "+");
+    b.sel = -1;
+    sfx.forge();
+  } else if (act === "drop") {
+    if (G.deck.length <= 6) {
+      addFloater(IW / 2, 200, "МИНИМУМ 6 КАРТ", PAL.R);
+      return;
+    }
+    G.deck.splice(b.sel, 1);
+    b.sel = -1;
+    sfx.card();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1112,7 +1595,7 @@ function pointerDown(clientX, clientY) {
   if (G.state === "title") { G.state = "intro"; G.introIdx = 0; return; }
   if (G.state === "intro") {
     G.introIdx++;
-    if (G.introIdx >= 2) { startBattle(); }
+    if (G.introIdx >= 2) { nextFloor(); }
     return;
   }
   if (G.state === "dead" || G.state === "ending") {
@@ -1126,6 +1609,16 @@ function pointerDown(clientX, clientY) {
   else if (z.t === "reward") { pickReward(z.i); }
   else if (z.t === "skip") { pickReward(-1); }
   else if (z.t === "relic") { pickRelic(z.i); }
+  else if (z.t === "opt") { eventChoose(z.i); }
+  else if (z.t === "bagopen") { openBag("manage", z.i); }
+  else if (z.t === "bagcard") {
+    if (G.bag.mode === "upgrade") {
+      if (!cardData(G.deck[z.i]).up) { smithUpgrade(z.i); }
+    } else {
+      G.bag.sel = G.bag.sel === z.i ? -1 : z.i;
+    }
+  }
+  else if (z.t === "bagact") { bagAction(z.i); }
 }
 
 document.addEventListener("touchstart", function (e) {
@@ -1147,16 +1640,17 @@ window.addEventListener("keydown", function (e) {
     if (G.state === "title") { G.state = "intro"; G.introIdx = 0; }
     else if (G.state === "intro") {
       G.introIdx++;
-      if (G.introIdx >= 2) { startBattle(); }
+      if (G.introIdx >= 2) { nextFloor(); }
     }
     else if ((G.state === "dead" || G.state === "ending") && G.stateTime > 0.8) { newRun(); }
     else if (G.state === "battle") { endTurn(); }
   }
   var n = parseInt(e.key, 10);
-  if (n >= 1 && n <= 5) {
+  if (n >= 1 && n <= 6) {
     if (G.state === "battle") { playCard(n - 1); }
     else if (G.state === "reward" && n <= 3) { pickReward(n - 1); }
     else if (G.state === "relic" && n <= 2) { pickRelic(n - 1); }
+    else if (G.state === "event" && n <= 4) { eventChoose(n - 1); }
   }
   if (e.key === "0" && G.state === "reward") { pickReward(-1); }
 });
@@ -1171,6 +1665,7 @@ function update(dt) {
   if (G.enemyFlash > 0) { G.enemyFlash -= dt; }
   if (G.playerFlash > 0) { G.playerFlash -= dt; }
   if (G.fireFlash > 0) { G.fireFlash -= dt; }
+  if (G.enemyLunge > 0) { G.enemyLunge -= dt; }
 
   for (var i = G.floaters.length - 1; i >= 0; i--) {
     var f = G.floaters[i];
@@ -1210,12 +1705,11 @@ function drawBar(x, y, w, h, val, max, color) {
   ctx.fillRect(x, y, fw, h);
 }
 
-function drawBackground(depth) {
+function drawBackground() {
   ctx.fillStyle = PAL.K;
   ctx.fillRect(0, 0, IW, IH);
-  // чем глубже — тем краснее кладка
-  var deep = G.floor >= 11;
-  ctx.fillStyle = deep ? "#2a1a26" : "#20233a";
+  var deep = G.floor >= 15 ? "#2a1a26" : G.floor >= 10 ? "#241d30" : "#20233a";
+  ctx.fillStyle = deep;
   for (var y = 0; y < IH; y += 10) {
     for (var x = -8; x < IW; x += 16) {
       var off = (y / 10) % 2 ? 8 : 0;
@@ -1231,19 +1725,42 @@ function drawBackground(depth) {
   ctx.fillRect(14, 24, 2, 3); ctx.fillRect(IW - 16, 24, 2, 3);
 }
 
-function drawCardFace(x, y, w, h, key, dim, zoneType, zoneI) {
-  var c = CARD_DEFS[key];
-  drawPanel(x, y, w, h, dim ? PAL.E : PAL.Y);
-  ctx.fillStyle = dim ? PAL.S : PAL.W;
+function drawGold(x, y) {
+  ctx.drawImage(SPR.coin, x, y);
+  drawText(ctx, String(G.gold), x + 8, y + 1, PAL.Y);
+}
+
+function drawCardFace(x, y, w, h, key, dim, zoneType, zoneI, sel) {
+  var c = cardData(key);
+  drawPanel(x, y, w, h, sel ? PAL.C : c.up ? PAL.O : dim ? PAL.E : PAL.Y);
+  ctx.fillStyle = key.indexOf("tma") === 0 ? PAL.P : dim ? PAL.S : PAL.W;
   ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
   var ic = SPR[c.icon];
   ctx.drawImage(ic, x + Math.round((w - 9) / 2), y + 3);
-  drawTextC(ctx, c.name, x + w / 2, y + 14, PAL.K);
-  drawTextC(ctx, c.desc, x + w / 2, y + 21, dim ? PAL.E : PAL.P);
-  if (c.desc2) { drawTextC(ctx, c.desc2, x + w / 2, y + 27, dim ? PAL.E : PAL.P); }
+  if (h >= 28) {
+    var nameCol = key.indexOf("tma") === 0 ? PAL.W : c.up ? PAL.O : PAL.K;
+    drawTextC(ctx, c.name, x + w / 2, y + 14, nameCol);
+    var descCol = key.indexOf("tma") === 0 ? PAL.M : dim ? PAL.E : PAL.P;
+    drawTextC(ctx, c.desc, x + w / 2, y + 21, descCol);
+    if (c.desc2) { drawTextC(ctx, c.desc2, x + w / 2, y + 27, descCol); }
+  }
   drawPanel(x - 1, y - 1, 7, 7, dim ? PAL.E : PAL.B);
   drawText(ctx, String(c.cost), x + 1, y, PAL.W);
-  G.zones.push({ t: zoneType, i: zoneI, x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
+  if (c.up) {
+    ctx.fillStyle = PAL.Y;
+    ctx.fillRect(x + w - 4, y - 1, 3, 3);
+  }
+  if (zoneType) {
+    G.zones.push({ t: zoneType, i: zoneI, x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
+  }
+}
+
+function drawBagButton(retState) {
+  var x = 4, y = IH - 16;
+  drawPanel(x, y, 42, 13, PAL.N);
+  ctx.drawImage(SPR.bag, x + 2, y + 2);
+  drawText(ctx, "СУМКА", x + 13, y + 4, PAL.W);
+  G.zones.push({ t: "bagopen", i: retState, x: x - 2, y: y - 2, w: 46, h: 17 });
 }
 
 function drawBattle() {
@@ -1254,12 +1771,13 @@ function drawBattle() {
   var e = G.enemy;
   var isBig = e.def.boss || e.def.mini;
 
-  // враг
+  // враг (с выпадом при действии)
   var sp = SPR[e.def.key];
   var esc = 3;
   var ew = sp.width * esc, eh = sp.height * esc;
   var ex = Math.round((IW - ew) / 2);
-  var ey = 60 - eh + Math.round(Math.sin(G.time * 2.5) * 2);
+  var lunge = G.enemyLunge > 0 ? Math.round(G.enemyLunge * 14) : 0;
+  var ey = 60 - eh + Math.round(Math.sin(G.time * 2.5) * 2) + lunge;
 
   if (G.enemyFlash > 0 && Math.floor(G.time * 30) % 2 === 0) {
     ctx.save();
@@ -1270,43 +1788,34 @@ function drawBattle() {
     ctx.drawImage(sp, ex, ey, ew, eh);
   }
 
-  // верхняя панель — поверх спрайта
+  // верхняя панель
   var floorTxt = "ЭТАЖ " + G.floor + "/" + FLOORS;
   drawPanel(2, 2, textW(floorTxt) + 5, 9, PAL.K);
   drawText(ctx, floorTxt, 4, 4, isBig ? PAL.R : PAL.W);
-  // реликвии
+  drawPanel(IW - 34, 2, 32, 9, PAL.K);
+  drawGold(IW - 32, 3);
   for (var i = 0; i < G.relics.length; i++) {
-    ctx.drawImage(SPR[RELIC_DEFS[G.relics[i]].icon], IW - 12 - i * 11, 3);
+    ctx.drawImage(SPR[RELIC_DEFS[G.relics[i]].icon], IW - 12 - i * 11, 13);
   }
 
-  // намерение врага — с тёмной подложкой, поверх спрайта
+  // намерение врага
   var showIntent = (G.phase === "player" || G.phase === "enemyPoison") && G.hp > 0;
   if (showIntent) {
-    var ix = 6, iy = 20;
-    if (e.stun > 0) {
-      drawPanel(ix - 3, iy - 3, 32, 13, PAL.K);
-      ctx.drawImage(SPR.mStun, ix, iy);
-      drawText(ctx, "СТАН", ix + 8, iy + 1, PAL.Y);
-    } else {
+    var ixx = 6, iyy = 20;
+    var lbl = "", icn = null, col = PAL.W;
+    if (e.stun > 0) { icn = SPR.mStun; lbl = "СТАН"; col = PAL.Y; }
+    else {
       var it = intent();
-      if (it === "a") {
-        drawPanel(ix - 3, iy - 3, 24, 13, PAL.K);
-        ctx.drawImage(SPR.mSword, ix, iy);
-        drawText(ctx, String(e.atk), ix + 9, iy + 1, PAL.R);
-      } else if (it === "f") {
-        drawPanel(ix - 3, iy - 3, 26, 13, PAL.K);
-        ctx.drawImage(SPR.mFire, ix, iy);
-        drawText(ctx, (e.def.fire || e.atk) + "!", ix + 9, iy + 1, PAL.O);
-      } else if (it === "h") {
-        drawPanel(ix - 3, iy - 3, 28, 13, PAL.K);
-        ctx.drawImage(SPR.mHeal, ix, iy);
-        drawText(ctx, "ХИЛ", ix + 9, iy + 1, PAL.L);
-      } else {
-        drawPanel(ix - 3, iy - 3, 28, 13, PAL.K);
-        ctx.drawImage(SPR.mShield, ix, iy);
-        drawText(ctx, "ЩИТ", ix + 9, iy + 1, PAL.A);
-      }
+      if (it === "a") { icn = SPR.mSword; lbl = String(e.atk); col = PAL.R; }
+      else if (it === "v") { icn = SPR.mDrain; lbl = e.atk + "+ХИЛ"; col = PAL.R; }
+      else if (it === "f") { icn = SPR.mFire; lbl = (e.def.fire || e.atk) + "!"; col = PAL.O; }
+      else if (it === "s") { icn = SPR.mWeb; lbl = "СЕТЬ"; col = PAL.Y; }
+      else if (it === "h") { icn = SPR.mHeal; lbl = "ХИЛ"; col = PAL.L; }
+      else { icn = SPR.mShield; lbl = "ЩИТ"; col = PAL.A; }
     }
+    drawPanel(ixx - 3, iyy - 3, textW(lbl) + 16, 13, PAL.K);
+    ctx.drawImage(icn, ixx, iyy);
+    drawText(ctx, lbl, ixx + 9, iyy + 1, col);
   }
 
   drawTextC(ctx, e.name, IW / 2, 64, isBig ? PAL.Y : PAL.W);
@@ -1345,23 +1854,23 @@ function drawBattle() {
     drawText(ctx, String(G.block), 121, py + 11, PAL.A);
   }
 
-  // рука
-  var hy = 126, cw = 26, chh = 34, gap = 2;
-  var total = G.hand.length * (cw + gap) - gap;
+  // рука (до 6 карт)
+  var hy = 126, n = G.hand.length;
+  var cw = n > 5 ? 22 : 26, gap = n > 5 ? 1 : 2, chh = 34;
+  var total = n * (cw + gap) - gap;
   var hx0 = Math.round((IW - total) / 2);
   drawText(ctx, "РУКА", 4, hy - 8, PAL.E);
   var pileTxt = G.drawPile.length + "/" + G.discard.length;
   drawText(ctx, pileTxt, IW - textW(pileTxt) - 4, hy - 8, PAL.E);
-  for (i = 0; i < G.hand.length; i++) {
+  for (i = 0; i < n; i++) {
     var key = G.hand[i];
-    var dim = CARD_DEFS[key].cost > G.energy || G.phase !== "player";
-    drawCardFace(hx0 + i * (cw + gap), hy, cw, chh, key, dim, "card", i);
+    var dim = cardData(key).cost > G.energy || G.phase !== "player";
+    drawCardFace(hx0 + i * (cw + gap), hy, cw, chh, key, dim, "card", i, false);
   }
-  if (G.hand.length === 0 && G.phase === "player") {
+  if (n === 0 && G.phase === "player") {
     drawTextC(ctx, "НЕТ КАРТ", IW / 2, hy + 14, PAL.E);
   }
 
-  // кнопка конца хода
   var by = 170, bw = 64, bh = 14;
   var bx = Math.round((IW - bw) / 2);
   var active = G.phase === "player";
@@ -1371,7 +1880,7 @@ function drawBattle() {
 
   if (G.floor === 1 && G.time < 10) {
     drawLines(["ТАП ПО КАРТЕ = СЫГРАТЬ",
-               "МЕЧ НАД ВРАГОМ = ЕГО АТАКА",
+               "ЗНАЧОК СЛЕВА = ХОД ВРАГА",
                "ЩИТ СГОРАЕТ КАЖДЫЙ ХОД"], 192, 8, PAL.S);
   }
   if (e.def.boss) {
@@ -1382,63 +1891,212 @@ function drawBattle() {
 }
 
 function drawReward() {
-  drawTextC(ctx, "ПОБЕДА!", IW / 2, 22, PAL.Y, 2);
-  drawTextC(ctx, "ЭТАЖ " + G.floor + " ПРОЙДЕН", IW / 2, 40, PAL.W);
-  drawTextC(ctx, "ВОЗЬМИ КАРТУ:", IW / 2, 58, PAL.S);
+  drawTextC(ctx, "ПОБЕДА!", IW / 2, 20, PAL.Y, 2);
+  drawTextC(ctx, "+" + G.rewardGold + " МОНЕТ", IW / 2, 38, PAL.Y);
+  ctx.drawImage(SPR.coin, IW / 2 + textW("+" + G.rewardGold + " МОНЕТ") / 2 + 3, 37);
+  drawTextC(ctx, "ВОЗЬМИ КАРТУ:", IW / 2, 54, PAL.S);
 
   var cw = 34, chh = 42, gap = 6;
   var total = 3 * (cw + gap) - gap;
   var x0 = Math.round((IW - total) / 2);
   for (var i = 0; i < 3; i++) {
-    drawCardFace(x0 + i * (cw + gap), 70, cw, chh, G.rewards[i], false, "reward", i);
+    drawCardFace(x0 + i * (cw + gap), 66, cw, chh, G.rewards[i], false, "reward", i, false);
   }
 
-  var bw = 84, bh = 14, bx = Math.round((IW - bw) / 2), by = 130;
+  var bw = 84, bh = 14, bx = Math.round((IW - bw) / 2), by = 126;
   drawPanel(bx, by, bw, bh, PAL.T);
   drawTextC(ctx, "ПРОПУСК: ХП +6", bx + bw / 2, by + 5, PAL.W);
   G.zones.push({ t: "skip", i: 0, x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 });
 
-  ctx.drawImage(SPR.heart, 34, 158);
-  drawText(ctx, G.hp + "/" + G.maxHp, 44, 159, PAL.W);
-  drawText(ctx, "КОЛОДА " + G.deck.length, 82, 159, PAL.S);
+  ctx.drawImage(SPR.heart, 24, 152);
+  drawText(ctx, G.hp + "/" + G.maxHp, 34, 153, PAL.W);
+  drawGold(74, 152);
+  var dc = "КОЛОДА " + G.deck.length + "/" + DECK_MAX;
+  drawTextC(ctx, dc, IW / 2, 166, G.deck.length >= DECK_MAX ? PAL.R : PAL.S);
+
+  drawBagButton("reward");
 }
 
 function drawRelicChoice() {
-  drawTextC(ctx, "СТРАЖ ПОВЕРЖЕН!", IW / 2, 16, PAL.Y, 2);
-  drawTextC(ctx, "ХП +10", IW / 2, 34, PAL.L);
-  drawTextC(ctx, "ГОЛОС ИЗ ГЛУБИНЫ:", IW / 2, 50, PAL.M);
-  drawTextC(ctx, G.voice, IW / 2, 58, PAL.M);
-  drawTextC(ctx, "ВЫБЕРИ РЕЛИКВИЮ:", IW / 2, 76, PAL.S);
-  drawTextC(ctx, "ОНА ОСТАНЕТСЯ НАВСЕГДА", IW / 2, 84, PAL.E);
+  drawTextC(ctx, "СТРАЖ ПОВЕРЖЕН!", IW / 2, 14, PAL.Y, 2);
+  drawTextC(ctx, "ХП +10  МОНЕТЫ +" + G.rewardGold, IW / 2, 32, PAL.L);
+  drawTextC(ctx, "ГОЛОС ИЗ ГЛУБИНЫ:", IW / 2, 46, PAL.M);
+  drawTextC(ctx, G.voice, IW / 2, 54, PAL.M);
+  drawTextC(ctx, "ВЫБЕРИ РЕЛИКВИЮ:", IW / 2, 70, PAL.S);
+  drawTextC(ctx, "ОНА ОСТАНЕТСЯ НАВСЕГДА", IW / 2, 78, PAL.E);
 
   for (var i = 0; i < G.relicChoice.length; i++) {
     var k = G.relicChoice[i];
     var d = RELIC_DEFS[k];
     var w = 120, h = 26;
-    var x = Math.round((IW - w) / 2), y = 98 + i * 34;
+    var x = Math.round((IW - w) / 2), y = 92 + i * 34;
     drawPanel(x, y, w, h, PAL.N);
     ctx.drawImage(SPR[d.icon], x + 5, y + 8);
     drawText(ctx, d.name, x + 20, y + 5, PAL.Y);
     drawText(ctx, d.desc, x + 20, y + 14, PAL.W);
     G.zones.push({ t: "relic", i: i, x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
   }
+
+  drawBagButton("relic");
+}
+
+// --- события ---
+function drawOption(text, y, enabled, idx) {
+  var w = Math.max(90, textW(text) + 14), h = 14;
+  var x = Math.round((IW - w) / 2);
+  drawPanel(x, y, w, h, enabled ? PAL.T : PAL.D);
+  drawTextC(ctx, text, IW / 2, y + 5, enabled ? PAL.W : PAL.E);
+  if (enabled) {
+    G.zones.push({ t: "opt", i: idx, x: x - 2, y: y - 2, w: w + 4, h: h + 4 });
+  }
+}
+
+function drawEvent() {
+  var ev = G.event;
+  var floorTxt = "ЭТАЖ " + G.floor + "/" + FLOORS;
+  drawText(ctx, floorTxt, 4, 4, PAL.W);
+  drawGold(IW - 32, 3);
+
+  if (ev.key === "mirror") {
+    drawTextC(ctx, "СТРАННОЕ ЗЕРКАЛО", IW / 2, 22, PAL.C, 2);
+    var msc = 3;
+    ctx.drawImage(SPR.mirror, Math.round((IW - 12 * msc) / 2), 40, 12 * msc, 14 * msc);
+    if (ev.stage === 0) {
+      drawLines(["В ОТРАЖЕНИИ ТЫ ВИДИШЬ",
+                 "ТЁМНУЮ ВЕРСИЮ СВОЕЙ КАРТЫ.",
+                 "ОНА СИЛЬНЕЕ. НО РАНИТ ТЕБЯ.",
+                 "",
+                 "ТЬМА: УРОН 15, СЕБЕ -3"], 92, 9, PAL.W);
+      drawOption("ОБМЕНЯТЬ КАРТУ", 148, true, 0);
+      drawOption("УЙТИ", 168, true, 1);
+    } else {
+      drawTextC(ctx, ev.text, IW / 2, 100, PAL.M);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "smith") {
+    drawTextC(ctx, "КУЗНЕЦ ГЛУБИН", IW / 2, 22, PAL.O, 2);
+    ctx.drawImage(SPR.smith, 40, 42, 20, 26);
+    ctx.drawImage(SPR.anvil, 70, 56, 30, 16);
+    if (ev.stage === 0) {
+      drawLines(["Я МОГУ УСИЛИТЬ ТВОЮ КАРТУ.",
+                 "ПЛАТИ МОНЕТАМИ...",
+                 "ИЛИ СОБСТВЕННОЙ КРОВЬЮ."], 84, 9, PAL.W);
+      drawOption("ЗА 15 МОНЕТ", 120, G.gold >= 15, 0);
+      drawOption("ЗА -5 МАКС ХП", 140, G.maxHp > 10, 1);
+      drawOption("УЙТИ", 160, true, 2);
+    } else {
+      drawTextC(ctx, ev.text, IW / 2, 96, PAL.Y);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "fire") {
+    drawTextC(ctx, "КОСТЁР", IW / 2, 22, PAL.Y, 2);
+    var fsp = Math.floor(G.time * 5) % 2 ? SPR.fire1 : SPR.fire2;
+    ctx.drawImage(fsp, Math.round((IW - 36) / 2), 44, 36, 33);
+    if (ev.stage === 0) {
+      drawLines(["ТИХОЕ МЕСТО СРЕДИ ТЬМЫ.",
+                 "МОЖНО ПЕРЕВЕСТИ ДУХ."], 88, 9, PAL.W);
+      drawOption("ОТДЫХ: +12 ХП", 116, true, 0);
+      drawOption("ЗАКАЛКА: УЛУЧШИТЬ КАРТУ", 136, true, 1);
+      drawOption("ИДТИ ДАЛЬШЕ", 156, true, 2);
+    } else {
+      drawTextC(ctx, ev.text, IW / 2, 96, PAL.L);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "shop") {
+    drawTextC(ctx, "ТОРГОВЕЦ", IW / 2, 16, PAL.G, 2);
+    ctx.drawImage(SPR.merchant, IW / 2 - 12, 32, 24, 26);
+    drawTextC(ctx, "КУПИШЬ ЧТО-НИБУДЬ?", IW / 2, 62, PAL.W);
+    var cw = 34, chh = 42, gap = 6;
+    var total = 3 * (cw + gap) - gap;
+    var x0 = Math.round((IW - total) / 2);
+    for (var i = 0; i < 3; i++) {
+      var offer = G.shopOffers[i];
+      var x = x0 + i * (cw + gap);
+      if (offer.sold) {
+        drawPanel(x, 74, cw, chh, PAL.D);
+        drawTextC(ctx, "ПРОДАНО", x + cw / 2, 92, PAL.E);
+      } else {
+        drawCardFace(x, 74, cw, chh, offer.key, G.gold < offer.price, "opt", i, false);
+        ctx.drawImage(SPR.coin, x + 6, 120);
+        drawText(ctx, String(offer.price), x + 14, 121, G.gold >= offer.price ? PAL.Y : PAL.R);
+      }
+    }
+    var dc = "КОЛОДА " + G.deck.length + "/" + DECK_MAX;
+    drawTextC(ctx, dc, IW / 2, 136, G.deck.length >= DECK_MAX ? PAL.R : PAL.S);
+    drawOption("УЙТИ", 150, true, 3);
+  }
+  drawBagButton("event");
+}
+
+// --- сумка ---
+function drawBag() {
+  var b = G.bag;
+  drawTextC(ctx, b.mode === "upgrade" ? "ВЫБЕРИ КАРТУ ДЛЯ КУЗНЕЦА" : "СУМКА", IW / 2, 8, PAL.Y,
+            b.mode === "upgrade" ? 1 : 2);
+  var dc = "КОЛОДА " + G.deck.length + "/" + DECK_MAX;
+  drawTextC(ctx, dc, IW / 2, b.mode === "upgrade" ? 18 : 24, PAL.S);
+  drawGold(4, 4);
+
+  // сетка карт 6 в ряд
+  var cw = 21, chh = 26, gap = 2;
+  var perRow = 6;
+  var x0 = Math.round((IW - (perRow * (cw + gap) - gap)) / 2);
+  var y0 = 34;
+  for (var i = 0; i < G.deck.length; i++) {
+    var col = i % perRow, row = Math.floor(i / perRow);
+    var x = x0 + col * (cw + gap), y = y0 + row * (chh + 4);
+    var c = cardData(G.deck[i]);
+    var dimIt = b.mode === "upgrade" && c.up;
+    drawCardFace(x, y, cw, chh, G.deck[i], dimIt, "bagcard", i, b.sel === i);
+  }
+
+  // панель выбранной карты
+  var py = 34 + Math.ceil(DECK_MAX / perRow) * 30 + 6;
+  if (b.mode !== "upgrade" && b.sel >= 0 && b.sel < G.deck.length) {
+    var sc2 = cardData(G.deck[b.sel]);
+    drawPanel(8, py, IW - 16, 24, PAL.N);
+    drawText(ctx, sc2.name, 14, py + 4, sc2.up ? PAL.O : PAL.W);
+    var dsc = sc2.desc + (sc2.desc2 ? "  " + sc2.desc2 : "") + "  ЦЕНА " + sc2.cost;
+    drawText(ctx, dsc, 14, py + 13, PAL.S);
+
+    var canMerge = bagDuplicateIdx(b.sel) >= 0;
+    var byy = py + 30;
+    drawPanel(8, byy, 62, 14, canMerge ? PAL.G : PAL.D);
+    drawTextC(ctx, "ОБЪЕДИНИТЬ", 8 + 31, byy + 5, canMerge ? PAL.K : PAL.E);
+    if (canMerge) { G.zones.push({ t: "bagact", i: "merge", x: 6, y: byy - 2, w: 66, h: 18 }); }
+    drawPanel(76, byy, 62, 14, G.deck.length > 6 ? PAL.R : PAL.D);
+    drawTextC(ctx, "ВЫБРОСИТЬ", 76 + 31, byy + 5, G.deck.length > 6 ? PAL.W : PAL.E);
+    G.zones.push({ t: "bagact", i: "drop", x: 74, y: byy - 2, w: 66, h: 18 });
+  } else if (b.mode !== "upgrade") {
+    drawTextC(ctx, "ТАП ПО КАРТЕ = ВЫБРАТЬ", IW / 2, py + 6, PAL.E);
+    drawTextC(ctx, "2 ОДИНАКОВЫЕ = УЛУЧШЕННАЯ", IW / 2, py + 16, PAL.E);
+  } else {
+    drawTextC(ctx, "УЛУЧШЕННЫЕ КАРТЫ НЕЛЬЗЯ", IW / 2, py + 6, PAL.E);
+    drawTextC(ctx, "УЛУЧШИТЬ ДВАЖДЫ", IW / 2, py + 16, PAL.E);
+  }
+
+  var bky = IH - 20;
+  drawPanel(Math.round((IW - 60) / 2), bky, 60, 14, PAL.B);
+  drawTextC(ctx, "НАЗАД", IW / 2, bky + 5, PAL.W);
+  G.zones.push({ t: "bagact", i: "back", x: (IW - 60) / 2 - 2, y: bky - 2, w: 64, h: 18 });
 }
 
 function drawTitle() {
-  drawTextC(ctx, "ДРАКОНЬЕ", IW / 2, 30, PAL.Y, 2);
-  drawTextC(ctx, "ПОДЗЕМЕЛЬЕ", IW / 2, 46, PAL.O, 2);
+  drawTextC(ctx, "ДРАКОНЬЕ", IW / 2, 26, PAL.Y, 2);
+  drawTextC(ctx, "ПОДЗЕМЕЛЬЕ", IW / 2, 42, PAL.O, 2);
 
   var sp = SPR.dragon;
-  ctx.drawImage(sp, Math.round((IW - sp.width * 3) / 2), 66, sp.width * 3, sp.height * 3);
-  ctx.drawImage(SPR.princess, 14, 84, 20, 28);
-  ctx.drawImage(SPR.knight, IW - 36, 84, 20, 28);
+  ctx.drawImage(sp, Math.round((IW - sp.width * 3) / 2), 60, sp.width * 3, sp.height * 3);
+  ctx.drawImage(SPR.princess, 14, 78, 20, 28);
+  ctx.drawImage(SPR.knight, IW - 36, 78, 20, 28);
 
-  drawLines(["КАРТОЧНЫЙ РОГАЛИК", "СПАСИ ПРИНЦЕССУ ОТ ДРАКОНА"], 136, 10, PAL.W);
-  drawLines(["15 ЭТАЖЕЙ ВНИЗ",
-             "СТРАЖИ НА 5 И 10 ЭТАЖАХ",
-             "ЗА НИХ - ВЕЧНЫЕ РЕЛИКВИИ"], 162, 8, PAL.S);
-  if (best > 0) { drawTextC(ctx, "РЕКОРД: ЭТАЖ " + best, IW / 2, 194, PAL.L); }
-  if (wins > 0) { drawTextC(ctx, "СПАСЕНИЙ: " + wins, IW / 2, 204, PAL.M); }
+  drawLines(["КАРТОЧНЫЙ РОГАЛИК", "СПАСИ ПРИНЦЕССУ ОТ ДРАКОНА"], 128, 10, PAL.W);
+  drawLines(["20 ЭТАЖЕЙ ВНИЗ",
+             "СТРАЖИ НА 5/10/15 - РЕЛИКВИИ",
+             "СОБЫТИЯ, МОНЕТЫ, ПРОКАЧКА",
+             "НА ДНЕ ЖДЁТ ДРАКОН"], 152, 8, PAL.S);
+  if (best > 0) { drawTextC(ctx, "РЕКОРД: ЭТАЖ " + best, IW / 2, 192, PAL.L); }
+  if (wins > 0) { drawTextC(ctx, "СПАСЕНИЙ: " + wins, IW / 2, 202, PAL.M); }
 
   if (Math.floor(G.time * 2) % 2 === 0) {
     drawTextC(ctx, "ТАП = НАЧАТЬ", IW / 2, 224, PAL.C);
@@ -1456,15 +2114,18 @@ function drawIntro() {
     drawLines(["ИЗ ГЛУБИНЫ СЛЫШЕН",
                "ЕЁ ГОЛОС: ПОМОГИТЕ!"], 158, 10, PAL.M);
   } else {
-    ctx.drawImage(SPR.knight, Math.round(IW / 2 - 15), 36, 30, 42);
+    ctx.drawImage(SPR.knight, Math.round(IW / 2 - 15), 30, 30, 42);
     drawLines(["ТЫ - РЫЦАРЬ С КОЛОДОЙ КАРТ.",
                "СПУСТИСЬ НА " + FLOORS + " ЭТАЖЕЙ.",
                "",
-               "НА 5 И 10 ЭТАЖАХ - СТРАЖИ.",
-               "ЗА НИХ ДАЮТ РЕЛИКВИИ.",
+               "СТРАЖИ ДАЮТ РЕЛИКВИИ.",
+               "В ПУТИ ЖДУТ СОБЫТИЯ:",
+               "ЗЕРКАЛО, КУЗНЕЦ, КОСТЁР...",
                "",
-               "НА ДНЕ ЖДЁТ ДРАКОН.",
-               "ЕГО ПЛАМЯ БЬЁТ СКВОЗЬ ЩИТ."], 96, 9, PAL.W);
+               "МОНЕТЫ - ЗА ПОБЕДЫ.",
+               "ДУБЛИ КАРТ ОБЪЕДИНЯЙ В СУМКЕ.",
+               "",
+               "НА ДНЕ ЖДЁТ ДРАКОН."], 84, 9, PAL.W);
   }
   if (Math.floor(G.time * 2) % 2 === 0) {
     drawTextC(ctx, "ТАП = ДАЛЬШЕ", IW / 2, 224, PAL.C);
@@ -1473,7 +2134,6 @@ function drawIntro() {
 
 function drawEnding() {
   var t = G.stateTime;
-  // дракон падает
   var sp = SPR.dragon;
   var dy = Math.min(1, t / 1.5);
   ctx.save();
@@ -1483,7 +2143,6 @@ function drawEnding() {
 
   ctx.drawImage(SPR.knight, IW / 2 - 32, 90, 20, 28);
   ctx.drawImage(SPR.princess, IW / 2 + 12, 90, 20, 28);
-  // сердечки
   if (t > 1) {
     var hb = Math.floor(G.time * 3) % 2;
     ctx.drawImage(SPR.heart, IW / 2 - 4, 84 - (hb ? 2 : 0));
@@ -1522,6 +2181,8 @@ function draw() {
   else if (G.state === "battle") { drawBattle(); }
   else if (G.state === "reward") { drawReward(); }
   else if (G.state === "relic") { drawRelicChoice(); }
+  else if (G.state === "event") { drawEvent(); }
+  else if (G.state === "bag") { drawBag(); }
   else if (G.state === "ending") { drawEnding(); }
   else if (G.state === "dead") { drawBattle(); drawDead(); }
 
