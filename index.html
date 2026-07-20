@@ -26,51 +26,14 @@
   #game {
     position: absolute;
     left: 0; top: 0;
+    transform-origin: 0 0;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-  }
-  .btn {
-    position: fixed;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 16px;
-    background: rgba(244,244,244,0.10);
-    border: 2px solid rgba(244,244,244,0.25);
-    color: rgba(244,244,244,0.75);
-    font-family: monospace;
-    font-weight: bold;
-    pointer-events: none; /* хиты считаем сами по координатам */
-  }
-  .btn.pressed {
-    background: rgba(244,244,244,0.28);
-    border-color: rgba(244,244,244,0.6);
-  }
-  #btnL, #btnR {
-    width: 72px; height: 72px;
-    bottom: calc(18px + env(safe-area-inset-bottom));
-    font-size: 30px;
-  }
-  #btnL { left: calc(16px + env(safe-area-inset-left)); }
-  #btnR { left: calc(104px + env(safe-area-inset-left)); }
-  #btnJ {
-    width: 84px; height: 84px;
-    right: calc(18px + env(safe-area-inset-right));
-    bottom: calc(16px + env(safe-area-inset-bottom));
-    border-radius: 50%;
-    font-size: 22px;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .btn { display: none; } /* на десктопе кнопки не нужны */
   }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div class="btn" id="btnL">&#9664;</div>
-<div class="btn" id="btnR">&#9654;</div>
-<div class="btn" id="btnJ">A</div>
 <script>
 "use strict";
 
@@ -431,16 +394,23 @@ function isSolid(ch) { return ch === "#" || ch === "="; }
 var canvas = document.getElementById("game");
 var ctx = canvas.getContext("2d");
 var SCALE = 3, VW = 0, VH = 0;
+var IS_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+// В портрете на телефоне поворачиваем картинку на 90°: игра всегда
+// горизонтальная (iOS не даёт заблокировать ориентацию из браузера)
+var ROTATED = false;
 
 function resize() {
   var w = window.innerWidth, h = window.innerHeight;
+  ROTATED = IS_TOUCH && h > w;
+  var ew = ROTATED ? h : w, eh = ROTATED ? w : h;
   SCALE = Math.max(2, Math.round(Math.min(w, h) / 140));
-  VW = Math.ceil(w / SCALE);
-  VH = Math.ceil(h / SCALE);
+  VW = Math.ceil(ew / SCALE);
+  VH = Math.ceil(eh / SCALE);
   canvas.width = VW;
   canvas.height = VH;
   canvas.style.width = (VW * SCALE) + "px";
   canvas.style.height = (VH * SCALE) + "px";
+  canvas.style.transform = ROTATED ? "rotate(90deg) translateY(-100%)" : "none";
   ctx.imageSmoothingEnabled = false;
 }
 window.addEventListener("resize", resize);
@@ -485,13 +455,22 @@ var sfx = {
 // ---------------------------------------------------------------------------
 var input = { left: false, right: false, jumpHeld: false, jumpBuffer: 0, anyTap: false };
 var keys = {};
-var IS_TOUCH = window.matchMedia("(hover: none), (pointer: coarse)").matches;
 
-// нижняя граница камеры: на сенсорных устройствах поднимаем уровень
-// над кнопками управления
-function maxCamY() {
-  var reserve = IS_TOUCH ? Math.ceil(116 / SCALE) : 0;
-  return LEVEL_H * TILE - VH + reserve;
+function maxCamY() { return LEVEL_H * TILE - VH; }
+
+// Полный экран (Android/десктоп; iOS Safari не поддерживает —
+// там полноэкранность даёт "Добавить на экран Домой")
+function tryFullscreen() {
+  if (!IS_TOUCH || navigator.standalone) { return; }
+  if (document.fullscreenElement || document.webkitFullscreenElement) { return; }
+  var el = document.documentElement;
+  var fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (fn) {
+    try {
+      var r = fn.call(el);
+      if (r && r.catch) { r.catch(function () {}); }
+    } catch (err) {}
+  }
 }
 
 window.addEventListener("keydown", function (e) {
@@ -508,44 +487,60 @@ window.addEventListener("keydown", function (e) {
 });
 window.addEventListener("keyup", function (e) { keys[e.code] = false; });
 
-// Сенсор: считаем попадания пальцев в прямоугольники кнопок сами,
-// чтобы работал мультитач (бег + прыжок одновременно).
-var btnL = document.getElementById("btnL");
-var btnR = document.getElementById("btnR");
-var btnJ = document.getElementById("btnJ");
-var touchState = { left: false, right: false, jump: false };
+// Сенсор без видимых кнопок:
+//   держишь палец на левой половине экрана — бежишь влево,
+//   на правой — вправо;
+//   короткий тап (< 250 мс) или второй палец во время бега — прыжок.
+var activeTouches = {}; // identifier -> { t0, side, jumped }
 
-function hitRect(el, x, y, pad) {
-  var r = el.getBoundingClientRect();
-  return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+// экранная точка -> сторона игрового экрана с учётом поворота в портрете
+function touchSide(t) {
+  var gx = ROTATED ? t.clientY : t.clientX;
+  return gx < (VW * SCALE) / 2 ? -1 : 1;
 }
-function updateTouches(e) {
-  var prevJump = touchState.jump;
-  touchState.left = touchState.right = touchState.jump = false;
-  for (var i = 0; i < e.touches.length; i++) {
-    var t = e.touches[i];
-    var x = t.clientX, y = t.clientY;
-    if (hitRect(btnJ, x, y, 14)) { touchState.jump = true; }
-    else if (hitRect(btnL, x, y, 10)) { touchState.left = true; }
-    else if (hitRect(btnR, x, y, 10)) { touchState.right = true; }
-    else if (y > window.innerHeight * 0.45) {
-      // запасные зоны: низ экрана, слева — движение, справа — прыжок
-      if (x < window.innerWidth * 0.28) { touchState.left = true; }
-      else if (x < window.innerWidth * 0.5) { touchState.right = true; }
-      else { touchState.jump = true; }
+function touchCount() {
+  var n = 0, id;
+  for (id in activeTouches) { n++; }
+  return n;
+}
+
+document.addEventListener("touchstart", function (e) {
+  e.preventDefault();
+  initAudio();
+  tryFullscreen();
+  input.anyTap = true;
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var ct = e.changedTouches[i];
+    var jumped = false;
+    if (touchCount() > 0) {
+      // уже бежим другим пальцем — новый палец сразу прыгает
+      input.jumpBuffer = 0.12;
+      jumped = true;
     }
+    activeTouches[ct.identifier] = { t0: performance.now(), side: touchSide(ct), jumped: jumped };
   }
-  if (touchState.jump && !prevJump) { input.jumpBuffer = 0.12; }
-  btnL.classList.toggle("pressed", touchState.left);
-  btnR.classList.toggle("pressed", touchState.right);
-  btnJ.classList.toggle("pressed", touchState.jump);
-}
-["touchstart", "touchmove", "touchend", "touchcancel"].forEach(function (ev) {
+}, { passive: false });
+
+document.addEventListener("touchmove", function (e) {
+  e.preventDefault();
+  for (var i = 0; i < e.changedTouches.length; i++) {
+    var ct = e.changedTouches[i];
+    var a = activeTouches[ct.identifier];
+    if (a) { a.side = touchSide(ct); } // палец переехал на другую половину
+  }
+}, { passive: false });
+
+["touchend", "touchcancel"].forEach(function (ev) {
   document.addEventListener(ev, function (e) {
     e.preventDefault();
-    initAudio();
-    if (ev === "touchstart") { input.anyTap = true; }
-    updateTouches(e);
+    for (var i = 0; i < e.changedTouches.length; i++) {
+      var ct = e.changedTouches[i];
+      var a = activeTouches[ct.identifier];
+      delete activeTouches[ct.identifier];
+      if (a && !a.jumped && ev === "touchend" && performance.now() - a.t0 < 250) {
+        input.jumpBuffer = 0.12; // короткий тап = прыжок
+      }
+    }
   }, { passive: false });
 });
 document.addEventListener("mousedown", function () { initAudio(); input.anyTap = true; });
@@ -554,9 +549,18 @@ document.addEventListener("keydown", initAudio);
 document.addEventListener("dblclick", function (e) { e.preventDefault(); });
 
 function readInput(dt) {
-  input.left = keys.ArrowLeft || keys.KeyA || touchState.left || false;
-  input.right = keys.ArrowRight || keys.KeyD || touchState.right || false;
-  input.jumpHeld = keys.Space || keys.ArrowUp || keys.KeyW || touchState.jump || false;
+  // движение задаёт самый первый (старший) из прижатых пальцев
+  var oldest = null, id;
+  for (id in activeTouches) {
+    var a = activeTouches[id];
+    if (!oldest || a.t0 < oldest.t0) { oldest = a; }
+  }
+  var tl = oldest ? oldest.side < 0 : false;
+  var tr = oldest ? oldest.side > 0 : false;
+  input.left = keys.ArrowLeft || keys.KeyA || tl || false;
+  input.right = keys.ArrowRight || keys.KeyD || tr || false;
+  // с клавиатуры высота прыжка зависит от удержания; тач прыгает всегда в полную
+  input.jumpHeld = keys.Space || keys.ArrowUp || keys.KeyW || false;
   if (input.jumpBuffer > 0) { input.jumpBuffer -= dt; }
 }
 
@@ -613,7 +617,7 @@ function newGame() {
     vx: 0, vy: 0,
     onGround: false, coyote: 0,
     face: 1, anim: 0,
-    inv: 0
+    inv: 0, canCut: false
   };
   // камера сразу в правильной позиции, без "подъезда" на старте
   var lpw = LEVEL_W * TILE;
@@ -732,6 +736,7 @@ function update(dt) {
   if (game.state === "dead" || game.state === "win") {
     if (game.stateTime > 0.8 && input.anyTap) {
       game = newGame();
+      input.jumpBuffer = 0; // тап рестарта не должен сразу прыгать
     }
     input.anyTap = false;
     updateParticles(dt);
@@ -755,10 +760,11 @@ function update(dt) {
     p.vy = -JUMP_V;
     p.coyote = 0;
     input.jumpBuffer = 0;
+    p.canCut = input.jumpHeld; // тач-прыжок не обрезается
     sfx.jump();
   }
-  // короткий прыжок при раннем отпускании
-  if (!input.jumpHeld && p.vy < -60) { p.vy = -60; }
+  // короткий прыжок при раннем отпускании клавиши
+  if (p.canCut && !input.jumpHeld && p.vy < -60) { p.vy = -60; }
 
   var res = moveBody(p, dt);
   if (res.hitX) { p.vx = 0; }
@@ -993,6 +999,14 @@ function drawHUD() {
   var s = "SCORE " + game.score;
   drawText(ctx, s, VW - textW(s) - pad + 1, pad + 1, PAL.K);
   drawText(ctx, s, VW - textW(s) - pad, pad, PAL.W);
+
+  // подсказка по управлению в первые секунды
+  if (game.state === "play" && game.time < 6 && game.score === 0) {
+    var hint = IS_TOUCH ? "HOLD SIDE: RUN  TAP: JUMP" : "ARROWS: RUN  SPACE: JUMP";
+    var hx = Math.round((VW - textW(hint)) / 2);
+    drawText(ctx, hint, hx + 1, 15, PAL.K);
+    drawText(ctx, hint, hx, 14, PAL.W);
+  }
 
   if (game.state === "dead" || game.state === "win") {
     ctx.fillStyle = "rgba(26,28,44,0.75)";
