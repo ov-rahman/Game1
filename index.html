@@ -2495,7 +2495,7 @@ function drawMonsterBacking(cx, topY, w, h, big) {
   var pad = big ? 8 : 5;
   var x0 = cx - w / 2 - pad, x1 = cx + w / 2 + pad;
   var y0 = topY - pad, y1 = topY + h + pad;
-  ctx.fillStyle = big ? "rgba(23,26,42,0.5)" : "rgba(23,26,42,0.42)";
+  ctx.fillStyle = big ? "rgba(10,11,20,0.66)" : "rgba(10,11,20,0.58)";
   ctx.beginPath();
   ctx.moveTo(x0 + skew, y0);
   ctx.lineTo(x1 + skew, y0);
@@ -2503,7 +2503,7 @@ function drawMonsterBacking(cx, topY, w, h, big) {
   ctx.lineTo(x0 - skew, y1);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = big ? "rgba(255,205,117,0.4)" : "rgba(150,178,196,0.28)";
+  ctx.strokeStyle = big ? "rgba(255,205,117,0.5)" : "rgba(150,178,196,0.42)";
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -2628,7 +2628,7 @@ function drawCardFace(x, y, w, h, key, dim, zoneType, zoneI, sel) {
 
 function drawBagButton(retState) {
   var x = 4, y = IH - 16;
-  drawPanel(x, y, 42, 13, PAL.N);
+  drawUIPanel(x, y, 42, 13, 0.82);
   ctx.drawImage(SPR.bag, x + 2, y + 2);
   drawText(ctx, "СУМКА", x + 13, y + 4, PAL.W);
   G.zones.push({ t: "bagopen", i: retState, x: x - 2, y: y - 2, w: 46, h: 17 });
@@ -2734,7 +2734,7 @@ function drawBattle() {
   if (eh > 56) { var eshrink = 56 / eh; ew = Math.round(ew * eshrink); eh = 56; }
   var ex = Math.round((IW - ew) / 2);
   var lunge = G.enemyLunge > 0 ? Math.round(G.enemyLunge * 14) : 0;
-  var ey = 60 - eh + Math.round(Math.sin(G.time * 2.5) * 2) + lunge;
+  var ey = 60 - eh + lunge;
 
   drawMonsterBacking(IW / 2, ey, ew, eh, isBig);
 
@@ -2780,6 +2780,7 @@ function drawBattle() {
     drawText(ctx, lbl, ixx + 9, iyy + 1, col);
   }
 
+  drawSoftPanel(2, 61, IW - 4, 24, 0.45);
   drawTextC(ctx, e.name, IW / 2, 64, isBig ? PAL.Y : PAL.W);
   drawBar(IW / 2 - 30, 71, 60, 4, e.hp, e.maxHp, PAL.R);
   drawTextC(ctx, e.hp + "/" + e.maxHp, IW / 2, 77, PAL.W);
@@ -2867,6 +2868,7 @@ function drawBattle() {
 }
 
 function drawReward() {
+  drawSoftPanel(4, 8, IW - 8, 58, 0.42);
   drawTextC(ctx, "ПОБЕДА!", IW / 2, 20, PAL.Y, 2);
   drawTextC(ctx, "+" + G.rewardGold + " МОНЕТ", IW / 2, 38, PAL.Y);
   if (G.rewardUp) { drawTextC(ctx, "ЭЛИТНАЯ НАГРАДА: КАРТЫ+", IW / 2, 48, PAL.O); }
@@ -2884,6 +2886,7 @@ function drawReward() {
   drawTextC(ctx, "ПРОПУСК: ХП +4", bx + bw / 2, by + 5, PAL.W);
   G.zones.push({ t: "skip", i: 0, x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 });
 
+  drawSoftPanel(4, 148, IW - 8, 26, 0.42);
   ctx.drawImage(SPR.heart, 24, 152);
   drawText(ctx, G.hp + "/" + G.maxHp, 34, 153, PAL.W);
   drawGold(74, 152);
@@ -2929,11 +2932,13 @@ function drawEvent() {
   var ev = G.event;
   drawText(ctx, "АКТ " + G.act, 4, 4, PAL.W);
   drawGold(IW - 32, 3);
+  drawSoftPanel(4, 8, IW - 8, 28, 0.42);
 
   if (ev.key === "mirror") {
     drawTextC(ctx, "СТРАННОЕ ЗЕРКАЛО", IW / 2, 22, PAL.C, 2);
     ctx.drawImage(SPR.mirror, Math.round((IW - 36) / 2), 40, 36, 42);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 84, IW - 8, 54, 0.42);
       drawLines(["В ОТРАЖЕНИИ ТЫ ВИДИШЬ",
                  "ТЁМНУЮ ВЕРСИЮ СВОЕЙ КАРТЫ.",
                  "ОНА СИЛЬНЕЕ. НО РАНИТ ТЕБЯ.",
@@ -2942,14 +2947,17 @@ function drawEvent() {
       drawOption("ОБМЕНЯТЬ КАРТУ", 148, true, 0);
       drawOption("УЙТИ", 168, true, 1);
     } else {
+      drawSoftPanel(4, 92, IW - 8, 20, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 100, PAL.M);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
   } else if (ev.key === "smith") {
     drawTextC(ctx, "КУЗНЕЦ ГЛУБИН", IW / 2, 22, PAL.O, 2);
+    drawMonsterBacking(50, 42, 20, 26, false);
     ctx.drawImage(SPR.smith, 40, 42, 20, 26);
     ctx.drawImage(SPR.anvil, 70, 56, 30, 16);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 78, IW - 8, 36, 0.42);
       drawLines(["Я МОГУ УСИЛИТЬ ТВОЮ КАРТУ.",
                  "ПЛАТИ МОНЕТАМИ...",
                  "ИЛИ СОБСТВЕННОЙ КРОВЬЮ."], 84, 9, PAL.W);
@@ -2957,6 +2965,7 @@ function drawEvent() {
       drawOption("ЗА -5 МАКС ХП", 140, G.maxHp > 10, 1);
       drawOption("УЙТИ", 160, true, 2);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.Y);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
@@ -2965,12 +2974,14 @@ function drawEvent() {
     var fsp = Math.floor(G.time * 5) % 2 ? SPR.fire1 : SPR.fire2;
     ctx.drawImage(fsp, Math.round((IW - 36) / 2), 44, 36, 33);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 80, IW - 8, 28, 0.42);
       drawLines(["ТИХОЕ МЕСТО СРЕДИ ТЬМЫ.",
                  "МОЖНО ПЕРЕВЕСТИ ДУХ."], 88, 9, PAL.W);
       drawOption("ОТДЫХ: +10 ХП", 116, true, 0);
       drawOption("ЗАКАЛКА: УЛУЧШИТЬ КАРТУ", 136, true, 1);
       drawOption("ИДТИ ДАЛЬШЕ", 156, true, 2);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.L);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
@@ -2978,25 +2989,30 @@ function drawEvent() {
     drawTextC(ctx, "ОБВАЛ!", IW / 2, 22, PAL.R, 2);
     ctx.drawImage(SPR.rocks, Math.round((IW - 48) / 2), 42, 48, 27);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 74, IW - 8, 26, 0.42);
       drawLines(["ПУТЬ ЗАВАЛЕН КАМНЯМИ.",
                  "В ЗАВАЛЕ ВИДНА УЗКАЯ ЩЕЛЬ."], 80, 9, PAL.W);
       drawOption("ПРОСКОЧИТЬ: -15 ХП", 108, true, 0);
       drawOption("КУПИТЬ КИРКУ: -20 МОНЕТ", 128, G.gold >= 20, 1);
       drawOption("РАЗОБРАТЬ: -СЛУЧАЙНАЯ КАРТА", 148, true, 2);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.O);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
   } else if (ev.key === "gambler") {
     drawTextC(ctx, "АЗАРТНЫЙ ГОБЛИН", IW / 2, 22, PAL.G, 2);
+    drawMonsterBacking(IW / 2, 42, 36, 36, false);
     drawSprite("goblin", Math.round((IW - 36) / 2), 42, 36, 36);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 84, IW - 8, 30, 0.42);
       drawLines(["ГОБЛИН ТРЯСЁТ КОСТЯМИ:",
                  "СТАВЬ 15 - ПОЛУЧИШЬ 35!",
                  "...ИЛИ НИЧЕГО. ШАНС 50/50"], 86, 9, PAL.W);
       drawOption("СТАВКА 15 МОНЕТ", 120, G.gold >= 15, 0);
       drawOption("УЙТИ", 140, true, 1);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.Y);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
@@ -3004,19 +3020,23 @@ function drawEvent() {
     drawTextC(ctx, "ТЁМНЫЙ АЛТАРЬ", IW / 2, 22, PAL.P, 2);
     ctx.drawImage(SPR.altar, Math.round((IW - 42) / 2), 42, 42, 33);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 78, IW - 8, 26, 0.42);
       drawLines(["АЛТАРЬ ШЕПЧЕТ О СИЛЕ.",
                  "ОН ТРЕБУЕТ ПЛАТЫ."], 84, 9, PAL.W);
       drawOption("КРОВЬ: -7 ХП = 2 КАРТЫ+", 112, true, 0);
       drawOption("ОСКВЕРНИТЬ: +30 МОНЕТ И ПРОКЛЯТИЕ", 132, true, 1);
       drawOption("УЙТИ", 152, true, 2);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.P);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
   } else if (ev.key === "wounded") {
     drawTextC(ctx, "РАНЕНЫЙ РЫЦАРЬ", IW / 2, 22, PAL.S, 2);
+    drawMonsterBacking(IW / 2, 42, 30, 42, false);
     ctx.drawImage(SPR.knight, Math.round((IW - 30) / 2), 42, 30, 42);
     if (ev.stage === 0) {
+      drawSoftPanel(4, 90, IW - 8, 30, 0.42);
       drawLines(["У СТЕНЫ СИДИТ РЫЦАРЬ.",
                  "ОН ТОЖЕ ШЁЛ ЗА ПРИНЦЕССОЙ...",
                  "ЕМУ НУЖНЫ ДЕНЬГИ НА ВЫХОД."], 92, 9, PAL.W);
@@ -3024,20 +3044,24 @@ function drawEvent() {
       drawOption("ОГРАБИТЬ: +25 И ПРОКЛЯТИЕ", 144, true, 1);
       drawOption("ПРОЙТИ МИМО", 164, true, 2);
     } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
       drawTextC(ctx, ev.text, IW / 2, 96, PAL.S);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
   } else if (ev.key === "spirit") {
     drawTextC(ctx, "ВИДЕНИЕ", IW / 2, 22, PAL.M, 2);
+    drawMonsterBacking(IW / 2, 42, 30, 42, false);
     ctx.save();
     ctx.globalAlpha = 0.6 + Math.sin(G.time * 3) * 0.2;
     ctx.drawImage(SPR.princess, Math.round((IW - 30) / 2), 42, 30, 42);
     ctx.restore();
     if (ev.stage === 0) {
+      drawSoftPanel(4, 90, IW - 8, 20, 0.42);
       drawLines(["ОБРАЗ ПРИНЦЕССЫ МЕРЦАЕТ",
                  "В ХОЛОДНОМ ВОЗДУХЕ..."], 92, 9, PAL.W);
       drawOption("ПОДОЙТИ", 124, true, 0);
     } else {
+      drawSoftPanel(4, 84, IW - 8, 30, 0.42);
       drawTextC(ctx, G.voice, IW / 2, 92, PAL.M);
       drawTextC(ctx, ev.text, IW / 2, 104, PAL.L);
       drawOption("ДАЛЬШЕ", 148, true, 0);
@@ -3048,6 +3072,7 @@ function drawEvent() {
 
 function drawShop() {
   drawTextC(ctx, "ТОРГОВЕЦ", IW / 2, 14, PAL.G, 2);
+  drawMonsterBacking(IW / 2, 30, 24, 26, false);
   drawSprite("merchant", IW / 2 - 12, 30, 24, 26);
   drawGold(IW - 32, 3);
   var cw = 34, chh = 42, gap = 6;
@@ -3113,7 +3138,7 @@ function drawFoe() {
   drawTextC(ctx, "ВПЕРЕДИ ВРАГ", IW / 2, 14, PAL.R, 2);
   var fsize = spriteSize(e.def.key);
   var fx = Math.round((IW - fsize[0]) / 2);
-  var fy = 36 + Math.round(Math.sin(G.time * 2.5) * 2);
+  var fy = 36;
   drawMonsterBacking(IW / 2, fy, fsize[0], fsize[1], true);
   drawSprite(e.def.key, fx, fy, fsize[0], fsize[1]);
   var traits = foeTraits(e);
