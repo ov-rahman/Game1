@@ -53,7 +53,7 @@
 // ============================================================================
 
 var IW = 144, IH = 256;
-var ACTS = 4, ROWS = 7;
+var ACTS = 4, ROWS = 8;
 var DECK_MAX = 14;
 
 var PAL = {
@@ -1177,11 +1177,45 @@ var CARD_DEFS = {
   ryvok:  { name: "РЫВОК",  cost: 1, icon: "iDraw",   v: [{ draw: 2 }, { draw: 3 }, { draw: 3, cost: 0 }] },
   molot:  { name: "МОЛОТ",  cost: 2, icon: "iHammer", v: [{ dmg: 4, stun: 1 }, { dmg: 8, stun: 1 }, { dmg: 12, stun: 1 }] },
   tma:    { name: "ТЬМА",   cost: 1, icon: "iDark",   v: [{ dmg: 15, self: 3 }, { dmg: 22, self: 3 }, { dmg: 30, self: 1 }] },
-  curse:  { name: "ПРОКЛЯТИЕ", cost: 0, icon: "iCurse", v: [{ curse: 1 }, { curse: 1 }, { curse: 1 }] }
+  curse:  { name: "ПРОКЛЯТИЕ", cost: 0, icon: "iCurse", v: [{ curse: 1 }, { curse: 1 }, { curse: 1 }] },
+  kraja:  { name: "КРАЖА",  cost: 1, icon: "iDagger", v: [{ dmg: 4, steal: 6 }, { dmg: 6, steal: 9 }, { dmg: 8, steal: 14 }] },
+  jertva: { name: "ЖЕРТВА", cost: 0, icon: "iDark",   v: [{ energy: 2, self: 3 }, { energy: 2, self: 2 }, { energy: 3, self: 2 }] },
+  meteor: { name: "МЕТЕОР", cost: 3, icon: "iFire",   v: [{ dmg: 8, hits: 3 }, { dmg: 10, hits: 3 }, { dmg: 10, hits: 4 }] },
+  rok:    { name: "РОК",    cost: 1, icon: "iSword",  v: [{ rok: 4 }, { rok: 5 }, { rok: 6 }] }
 };
+// редкость: 0 обычная, 1 редкая, 2 эпическая, 3 легендарная — чем реже, тем сильнее
+var CARD_RARITY = {
+  udar: 0, nozh: 0, blok: 0, zaslon: 0, zelye: 0, iskra: 0,
+  rubka: 1, dvoinoi: 1, taran: 1, stena: 1, obereg: 1, nastoy: 1, ryvok: 1, yad: 1, kraja: 1,
+  kopyo: 2, ogon: 2, vamp: 2, molot: 2, regen: 2, grad: 2, jertva: 2,
+  bomba: 3, meteor: 3, rok: 3,
+  tma: 2, curse: 0
+};
+var RARITY_NAMES = ["ОБЫЧНАЯ", "РЕДКАЯ", "ЭПИЧЕСКАЯ", "ЛЕГЕНДАРНАЯ"];
+var RARITY_COLORS = [PAL.Y, PAL.A, PAL.P, PAL.C];
 var REWARD_POOL = ["rubka", "nozh", "kopyo", "dvoinoi", "grad", "taran", "iskra",
                    "ogon", "bomba", "stena", "zaslon", "obereg", "zelye", "regen",
-                   "nastoy", "yad", "vamp", "ryvok", "molot"];
+                   "nastoy", "yad", "vamp", "ryvok", "molot",
+                   "kraja", "jertva", "meteor", "rok"];
+// взвешенный выбор наград: обычные часто, легендарные редко
+function rollRewardCards(n) {
+  var w = [60, 30, 9, 3];
+  var out = [];
+  var pool = REWARD_POOL.slice();
+  while (out.length < n && pool.length > 0) {
+    var total = 0, i;
+    for (i = 0; i < pool.length; i++) { total += w[CARD_RARITY[pool[i]] || 0]; }
+    var roll = Math.random() * total;
+    for (i = 0; i < pool.length; i++) {
+      roll -= w[CARD_RARITY[pool[i]] || 0];
+      if (roll <= 0) { break; }
+    }
+    i = Math.min(i, pool.length - 1);
+    out.push(pool[i]);
+    pool.splice(i, 1);
+  }
+  return out;
+}
 
 function cardLevel(key) {
   var lvl = 0;
@@ -1205,14 +1239,18 @@ function cardData(key) {
     self: v.self || 0, curse: !!v.curse,
     hits: v.hits || 1, pierce: !!v.pierce, taran: !!v.taran,
     burn: v.burn || 0, spikes: !!v.spikes, keepBlock: !!v.keepBlock,
-    purge: !!v.purge, regen: v.regen || null, energy: v.energy || 0
+    purge: !!v.purge, regen: v.regen || null, energy: v.energy || 0,
+    steal: v.steal || 0, rok: v.rok || 0,
+    rarity: CARD_RARITY[baseKey] || 0
   };
   // описание: главная строка + строка свойства
   var parts = [];
   if (c.curse) { parts.push("МЁРТВЫЙ", "ГРУЗ"); }
+  if (c.rok) { parts.push("УРОН " + c.rok + "Х", "ЭНЕРГИЯ"); }
   if (c.taran) { parts.push("УРОН=ЩИТ" + (c.dmg ? "+" + c.dmg : "")); }
-  else if (c.dmg && c.hits > 1) { parts.push("УРОН " + c.dmg + "Х" + c.hits); }
+  else if (c.dmg && c.hits > 1) { parts.push("УРОН " + c.dmg + "Х" + c.hits, c.hits + " ХОДА"); }
   else if (c.dmg) { parts.push("УРОН " + c.dmg); }
+  if (c.steal) { parts.push("+" + c.steal + " МОНЕТ"); }
   if (c.block) { parts.push("ЩИТ " + c.block); }
   if (c.poison) { parts.push("ЯД " + c.poison); }
   if (c.regen) { parts.push("РЕГЕН " + c.regen[0] + "Х" + c.regen[1]); }
@@ -1481,7 +1519,7 @@ function newRun() {
     relics: [],
     relicChoice: [],
     minis: minis,
-    eventPool: shuffle(["mirror", "smith", "obval", "gambler", "altar", "wounded", "spirit"]),
+    eventPool: shuffle(["mirror", "smith", "obval", "gambler", "altar", "wounded", "spirit", "echoVoice"]),
     event: null,
     bag: null,
     voice: "",
@@ -1492,7 +1530,7 @@ function newRun() {
     firstPoisonUsed: false,
     mirrorUsed: false,
     spikes: false, keepBlock: false,
-    regen: null,
+    regen: null, echoes: [], cardInfo: null, bonusGold: 0,
     cardsThisTurn: 0, energyNext: 0,
     phase: "player", phaseT: 0,
     floaters: [], parts: [], amb: [], shake: 0, fade: 0,
@@ -1538,8 +1576,16 @@ function enterNode(r, i) {
   else if (type === "dragon") { G.state = "lair"; G.stateTime = 0; }
   else if (type === "event") { startEvent(); }
   else if (type === "fire") { G.event = { key: "firecamp", stage: 0, text: "" }; G.state = "event"; }
-  else if (type === "shop") { openShop(); }
-  else if (type === "treasure") { openTreasure(); }
+  else if (type === "shop") {
+    // иногда вместо торговца в лавке засада разбойников
+    if (Math.random() < 0.28) { G.event = { key: "robbers", stage: 0, text: "" }; G.state = "event"; }
+    else { openShop(); }
+  }
+  else if (type === "treasure") {
+    // иногда клад уже растащили пираты
+    if (Math.random() < 0.28) { G.event = { key: "pirates", stage: 0, text: "" }; G.state = "event"; }
+    else { openTreasure(); }
+  }
 }
 
 function returnToMap() {
@@ -1577,6 +1623,7 @@ function pickEnemy(nodeType) {
 
 function foeTraits(e) {
   var t = [];
+  if (e.buff) { t.push("УСИЛЕН: " + e.buff.name + "!", e.buff.desc); }
   if (e.elite) { t.push("ЭЛИТА: БОЛЬШЕ ХП И УРОНА"); }
   if (e.def.stunImmune) { t.push("ИММУНИТЕТ К СТАНУ"); }
   if (e.pattern.indexOf("f") >= 0) { t.push("ОГОНЬ БЬЁТ СКВОЗЬ ЩИТ"); }
@@ -1588,19 +1635,35 @@ function foeTraits(e) {
   return t;
 }
 
+// баффы усиленных врагов: случайно попадаются у обычных и элитных
+var ENEMY_BUFFS = [
+  { k: "rage",  name: "ЯРОСТНЫЙ",  desc: "УРОН +3" },
+  { k: "tough", name: "ЖИВУЧИЙ",   desc: "ХП +40%" },
+  { k: "stone", name: "КАМЕННЫЙ",  desc: "ЩИТ КАЖДЫЙ ХОД +4" },
+  { k: "thief", name: "ВОРОВАТЫЙ", desc: "АТАКА КРАДЁТ 2 МОНЕТЫ" }
+];
+
 function beginBattle(nodeType) {
   var pick = pickEnemy(nodeType);
   var def = pick.def;
   var hp = def.hp + (def.mini ? (G.act - 1) * 5 : def.boss ? 0 : G.pos.r * 2);
   var atk = def.atk;
   if (pick.boost) { hp = Math.ceil(hp * 1.35); atk += 2; }
+  // усиление: только обычные и элитные бои, шанс 22%
+  var buff = null;
+  if ((nodeType === "fight" || nodeType === "elite") && Math.random() < 0.22) {
+    buff = ENEMY_BUFFS[Math.floor(Math.random() * ENEMY_BUFFS.length)];
+    if (buff.k === "rage") { atk += 3; }
+    if (buff.k === "tough") { hp = Math.ceil(hp * 1.4); }
+  }
   G.enemy = {
     def: def,
-    name: (pick.boost ? "ЭЛИТНЫЙ " : "") + def.name,
+    name: (buff ? "УСИЛ. " : "") + (pick.boost ? "ЭЛИТНЫЙ " : "") + def.name,
     hp: hp, maxHp: hp, atk: atk,
     fire: def.fire || 0,
     pattern: def.pattern,
     elite: !!pick.boost,
+    buff: buff,
     enraged: false,
     block: 0, poison: 0, burn: 0, stun: 0,
     step: 0
@@ -1614,6 +1677,7 @@ function beginBattle(nodeType) {
   G.spikes = false;
   G.keepBlock = false;
   G.regen = null;
+  G.echoes = [];
   G.cardsThisTurn = 0;
   G.energyNext = 0;
   G.drawPile = shuffle(G.deck.slice());
@@ -1630,6 +1694,37 @@ function beginBattle(nodeType) {
   } else {
     G.state = "battle";
   }
+}
+
+// бой с врагом из события (разбойник, пират) — с бонусной добычей
+function beginCustomBattle(def, bonusGold) {
+  G.bonusGold = bonusGold || 0;
+  G.enemy = {
+    def: def, name: def.name,
+    hp: def.hp, maxHp: def.hp, atk: def.atk,
+    fire: def.fire || 0, pattern: def.pattern,
+    elite: false, buff: null, enraged: false,
+    block: 0, poison: 0, burn: 0, stun: 0, step: 0
+  };
+  G.phase = "player";
+  G.block = 0;
+  G.playerStun = false;
+  G.firstStrikeUsed = false;
+  G.firstPoisonUsed = false;
+  G.mirrorUsed = false;
+  G.spikes = false;
+  G.keepBlock = false;
+  G.regen = null;
+  G.echoes = [];
+  G.cardsThisTurn = 0;
+  G.energyNext = 0;
+  G.drawPile = shuffle(G.deck.slice());
+  G.discard = [];
+  G.hand = [];
+  drawCards(handLimit());
+  G.energy = maxEnergy();
+  sfx.boss();
+  G.state = "battle";
 }
 
 function drawCards(n) {
@@ -1695,11 +1790,13 @@ function playCard(idx) {
     addFloater(IW / 2, 150, "НЕТ ЭНЕРГИИ", PAL.R);
     return;
   }
-  // анимация улетающей карты
+  // анимация улетающей карты (та же раскладка, что в drawBattle)
   var n = G.hand.length;
-  var cw = n > 5 ? 22 : 26, gap = n > 5 ? 1 : 2;
-  var hx0 = Math.round((IW - (n * (cw + gap) - gap)) / 2);
-  G.cardFx = { key: key, x: hx0 + idx * (cw + gap), y: 126, t: 0.3 };
+  var cw = 33, gap = 2, perRow = 4;
+  var col = idx % perRow, row = Math.floor(idx / perRow);
+  var cnt = Math.min(perRow, n - row * perRow);
+  var rx0 = Math.round((IW - (cnt * (cw + gap) - gap)) / 2);
+  G.cardFx = { key: key, x: rx0 + col * (cw + gap), y: 122 + row * 42, t: 0.3 };
 
   G.energy -= c.cost;
   G.hand.splice(idx, 1);
@@ -1712,17 +1809,26 @@ function playCard(idx) {
     damageEnemy(4, true);
   }
   var atkDmg = c.taran ? G.block + c.dmg : c.dmg;
+  if (c.rok) { atkDmg = c.rok * (G.energy + c.cost); } // РОК: урон Х энергию до оплаты
   if (atkDmg > 0 && G.enemy.hp > 0) {
     var d = atkDmg + (hasRelic("tochilo") && c.cost >= 1 ? 2 : 0);
     // ПОДКОВА: х2 только для дешёвых атак (цена <= 2) — бомбой не ваншотнуть
-    if (hasRelic("podkova") && !G.firstStrikeUsed && c.cost <= 2) {
+    if (hasRelic("podkova") && !G.firstStrikeUsed && c.cost <= 2 && !c.rok) {
       d *= 2;
       addFloater(IW / 2, 96, "ПОДКОВА Х2!", PAL.Y);
     }
     G.firstStrikeUsed = true;
-    for (var hIdx = 0; hIdx < c.hits && G.enemy.hp > 0; hIdx++) {
-      damageEnemy(d, hIdx > 0, c.pierce);
+    damageEnemy(d, false, c.pierce);
+    // многоударные карты бьют этим уроном каждый ход ещё hits-1 ходов
+    if (c.hits > 1 && G.enemy.hp > 0) {
+      G.echoes.push({ dmg: d, left: c.hits - 1, name: c.name, pierce: c.pierce });
+      addFloater(IW / 2 + 22, 44, "ЕЩЁ " + (c.hits - 1) + " ХОДА", PAL.C);
     }
+  }
+  if (c.steal) {
+    G.gold += c.steal;
+    addFloater(IW / 2 - 30, 120, "+" + c.steal + " МОНЕТ", PAL.Y);
+    sfx.coin();
   }
   if (c.self) {
     G.hp = Math.max(1, G.hp - c.self);
@@ -1863,6 +1969,11 @@ function enemyAct() {
     G.shake = 0.25;
     addFloater(IW / 2 - 30, 112, "-" + dealt, dealt > 0 ? PAL.R : PAL.S);
     if (dealt > 0) { sfx.hurt(); } else { sfx.block(); }
+    if (e.buff && e.buff.k === "thief" && dealt > 0 && G.gold > 0) {
+      var stolen = Math.min(2, G.gold);
+      G.gold -= stolen;
+      addFloater(IW / 2 - 30, 122, "-" + stolen + " МОНЕТЫ", PAL.Y);
+    }
     if (act === "v" && dealt > 0) {
       var vh = Math.min(Math.ceil(dealt / 2), e.maxHp - e.hp);
       e.hp += vh;
@@ -1900,7 +2011,7 @@ function enemyAct() {
     addFloater(IW / 2 + 22, 52, "+" + hh, PAL.L);
     sfx.heal();
   } else {
-    var eb = 5 + (e.def.defBonus || 0) + G.act;
+    var eb = 5 + (e.def.defBonus || 0) + G.act + (e.buff && e.buff.k === "stone" ? 4 : 0);
     e.block += eb;
     addFloater(IW / 2 + 22, 52, "ЩИТ +" + eb, PAL.A);
     sfx.block();
@@ -1917,6 +2028,16 @@ function enemyAct() {
 }
 
 function startPlayerTurn() {
+  // эхо многоударных карт: бьют каждый ход
+  for (var ei = 0; ei < G.echoes.length; ei++) {
+    var ec = G.echoes[ei];
+    if (G.enemy.hp > 0) {
+      addFloater(IW / 2, 96, ec.name + "!", PAL.C);
+      damageEnemy(ec.dmg, false, ec.pierce);
+    }
+    ec.left--;
+  }
+  G.echoes = G.echoes.filter(function (e2) { return e2.left > 0; });
   // СТЕНА++: щит не сгорает
   if (G.keepBlock) {
     G.keepBlock = false;
@@ -1960,6 +2081,8 @@ function onVictory() {
   var g = 4 + G.act * 3 + (hasRelic("koshel") ? 6 : 0);
   if (G.enemy.elite) { g += 12; }
   if (G.enemy.def.mini) { g += 18; }
+  if (G.enemy.buff) { g += 8; }
+  if (G.bonusGold) { g += G.bonusGold; G.bonusGold = 0; }
   G.gold += g;
   G.rewardGold = g;
   addParts(IW / 2, 80, PAL.Y, 10, 50);
@@ -1973,7 +2096,7 @@ function onVictory() {
     G.voice = VOICES[Math.floor(Math.random() * VOICES.length)];
     G.state = "relic";
   } else {
-    var rp = shuffle(REWARD_POOL.slice()).slice(0, 3);
+    var rp = rollRewardCards(3);
     G.rewardUp = G.enemy.elite;
     G.rewards = G.rewardUp ? rp.map(function (k) { return k + "+"; }) : rp;
     G.state = "reward";
@@ -2008,9 +2131,10 @@ function pickRelic(i) {
 // Узлы: торговец, сокровище
 // ---------------------------------------------------------------------------
 function openShop() {
-  var pool = shuffle(REWARD_POOL.slice()).slice(0, 3);
+  var pool = rollRewardCards(3);
   G.shopOffers = pool.map(function (k) {
-    return { key: k, price: 9 + cardData(k).cost * 4 + Math.floor(Math.random() * 5), sold: false };
+    var cd = cardData(k);
+    return { key: k, price: 9 + cd.cost * 4 + cd.rarity * 5 + Math.floor(Math.random() * 5), sold: false };
   });
   G.shopRelic = randomRelic();
   G.state = "shop";
@@ -2083,7 +2207,7 @@ function openTreasure() {
 // ---------------------------------------------------------------------------
 function startEvent() {
   if (G.eventPool.length === 0) {
-    G.eventPool = shuffle(["mirror", "smith", "obval", "gambler", "altar", "wounded", "spirit"]);
+    G.eventPool = shuffle(["mirror", "smith", "obval", "gambler", "altar", "wounded", "spirit", "echoVoice"]);
   }
   var key = G.eventPool.pop();
   G.event = { key: key, stage: 0, text: "" };
@@ -2213,6 +2337,38 @@ function eventChoose(i) {
     ev.text = "+" + h2 + " ХП";
     sfx.heal();
     ev.stage = 1;
+  } else if (ev.key === "robbers") {
+    if (i === 0 && G.gold >= 15) {
+      G.gold -= 15;
+      ev.text = "РАЗБОЙНИКИ ЗАБИРАЮТ МОНЕТЫ И УХОДЯТ";
+      sfx.coin();
+      ev.stage = 1;
+    } else if (i === 1) {
+      beginCustomBattle({ key: "goblin", name: "РАЗБОЙНИК",
+        hp: 16 + G.act * 9, atk: 4 + G.act * 2, pattern: "ada" }, 18 + G.act * 4);
+    } else { returnToMap(); }
+  } else if (ev.key === "pirates") {
+    if (i === 0) {
+      beginCustomBattle({ key: "bones", name: "ПИРАТ",
+        hp: 20 + G.act * 9, atk: 4 + G.act * 2, pattern: "aad" }, 24 + G.act * 6);
+    } else {
+      ev.text = "ТЫ ОТСТУПАЕШЬ. КЛАД ПОТЕРЯН...";
+      sfx.bad();
+      ev.stage = 1;
+    }
+  } else if (ev.key === "echoVoice") {
+    if (i === 0) {
+      G.maxHp += 3;
+      G.hp += 3;
+      ev.text = "ТЫ КРИЧИШЬ В ОТВЕТ. НАДЕЖДА КРЕПНЕТ: +3 МАКС ХП";
+      sfx.heal();
+      ev.stage = 1;
+    } else {
+      G.gold += 10;
+      ev.text = "МОЛЧА ИДЁШЬ. ПОД НОГОЙ БЛЕСТЯТ +10 МОНЕТ";
+      sfx.coin();
+      ev.stage = 1;
+    }
   }
 }
 
@@ -2322,9 +2478,11 @@ function pointerDown(clientX, clientY) {
     if (G.stateTime > 0.8) { newRun(); }
     return;
   }
+  if (G.cardInfo) { G.cardInfo = null; return; }
   var z = hitTest(ix, iy);
   if (!z) { return; }
   if (z.t === "node") { enterNode(z.r, z.i); }
+  else if (z.t === "cardinfo") { G.cardInfo = G.hand[z.i] || null; }
   else if (z.t === "card") { playCard(z.i); }
   else if (z.t === "end") { endTurn(); }
   else if (z.t === "reward") { pickReward(z.i); }
@@ -2596,7 +2754,7 @@ function drawGold(x, y) {
 function drawCardFace(x, y, w, h, key, dim, zoneType, zoneI, sel) {
   var c = cardData(key);
   var dark = key.indexOf("tma") === 0 || c.curse;
-  drawPanel(x, y, w, h, sel ? PAL.C : dark ? PAL.P : c.up ? PAL.O : dim ? PAL.E : PAL.Y);
+  drawPanel(x, y, w, h, sel ? PAL.C : dark ? PAL.P : c.up ? PAL.O : dim ? PAL.E : RARITY_COLORS[c.rarity]);
   ctx.fillStyle = dark ? PAL.P : dim ? PAL.S : PAL.W;
   ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
   var ic = SPR[c.icon];
@@ -2644,7 +2802,7 @@ function drawMap() {
     ctx.drawImage(SPR[RELIC_DEFS[G.relics[ri]].icon], 4 + ri * 11, 16);
   }
 
-  var y0 = 40, dy = 25;
+  var y0 = 36, dy = 22;
   // рёбра
   for (var r = 0; r < ROWS - 1; r++) {
     for (var i = 0; i < G.mapRows[r].length; i++) {
@@ -2822,18 +2980,26 @@ function drawBattle() {
     drawText(ctx, String(G.block), 121, py + 11, PAL.A);
   }
 
-  var hy = 126, n = G.hand.length;
-  var cw = n > 5 ? 22 : 26, gap = n > 5 ? 1 : 2, chh = 34;
-  var total = n * (cw + gap) - gap;
-  var hx0 = Math.round((IW - total) / 2);
-  drawText(ctx, "РУКА", 4, hy - 8, PAL.E);
+  // рука: два ряда по 4 крупных карты, чтобы текст всегда влезал
+  var hy = 122, n = G.hand.length;
+  var cw = 33, chh = 38, gap = 2, perRow = 4, rowGap = 4;
+  drawText(ctx, "РУКА", 4, hy - 7, PAL.E);
   var pileTxt = G.drawPile.length + "/" + G.discard.length;
-  drawText(ctx, pileTxt, IW - textW(pileTxt) - 4, hy - 8, PAL.E);
+  drawText(ctx, pileTxt, IW - textW(pileTxt) - 4, hy - 7, PAL.E);
   for (i = 0; i < n; i++) {
+    var col = i % perRow, row = Math.floor(i / perRow);
+    var cnt = Math.min(perRow, n - row * perRow);
+    var rx0 = Math.round((IW - (cnt * (cw + gap) - gap)) / 2);
+    var cx2 = rx0 + col * (cw + gap);
+    var cy2 = hy + row * (chh + rowGap);
     var key = G.hand[i];
     var cd2 = cardData(key);
     var dim = cd2.curse || cd2.cost > G.energy || G.phase !== "player";
-    drawCardFace(hx0 + i * (cw + gap), hy, cw, chh, key, dim, "card", i, false);
+    drawCardFace(cx2, cy2, cw, chh, key, dim, "card", i, false);
+    // кнопка информации в углу карты
+    drawPanel(cx2 + cw - 6, cy2 - 1, 7, 7, PAL.B);
+    drawText(ctx, "?", cx2 + cw - 4, cy2, PAL.W);
+    G.zones.push({ t: "cardinfo", i: i, x: cx2 + cw - 8, y: cy2 - 3, w: 12, h: 12 });
   }
   if (n === 0 && G.phase === "player") {
     drawTextC(ctx, "НЕТ КАРТ", IW / 2, hy + 14, PAL.E);
@@ -2848,7 +3014,7 @@ function drawBattle() {
     ctx.restore();
   }
 
-  var by = 170, bw = 64, bh = 14;
+  var by = 208, bw = 64, bh = 14;
   var bx = Math.round((IW - bw) / 2);
   var active = G.phase === "player";
   drawPanel(bx, by, bw, bh, active ? PAL.R : PAL.D);
@@ -2856,17 +3022,63 @@ function drawBattle() {
   if (active) { G.zones.push({ t: "end", i: 0, x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 }); }
 
   if (floorNum() === 1 && G.time < 12) {
-    drawSoftPanel(4, 188, IW - 8, 30, 0.42);
+    drawSoftPanel(4, 226, IW - 8, 28, 0.42);
     drawLines(["ТАП ПО КАРТЕ = СЫГРАТЬ",
-               "ЗНАЧОК СЛЕВА = ХОД ВРАГА",
-               "ЩИТ СГОРАЕТ КАЖДЫЙ ХОД"], 192, 8, PAL.S);
+               "? НА КАРТЕ = ЧТО ОНА ДЕЛАЕТ",
+               "ЩИТ СГОРАЕТ КАЖДЫЙ ХОД"], 230, 8, PAL.S);
   }
   if (e.def.boss) {
-    drawSoftPanel(4, 188, IW - 8, 16, 0.42);
-    drawTextC(ctx, e.enraged ? "ЯРОСТЬ: ТОЛЬКО ОГОНЬ И КЛЫКИ!" : "ПЛАМЯ БЬЁТ СКВОЗЬ ЩИТ!", IW / 2, 192, PAL.O);
+    drawSoftPanel(4, 226, IW - 8, 14, 0.42);
+    drawTextC(ctx, e.enraged ? "ЯРОСТЬ: ТОЛЬКО ОГОНЬ И КЛЫКИ!" : "ПЛАМЯ БЬЁТ СКВОЗЬ ЩИТ!", IW / 2, 230, PAL.O);
   }
 
   ctx.restore();
+}
+
+// оверлей информации о карте (рисуется поверх всего в draw)
+function drawCardInfoOverlay() {
+  var ic = cardData(G.cardInfo);
+  ctx.fillStyle = "rgba(10,11,20,0.7)";
+  ctx.fillRect(0, 0, IW, IH);
+  var lines = cardInfoLines(ic);
+  var ph = 40 + lines.length * 10;
+  var py0 = Math.round((IH - ph) / 2);
+  drawSoftPanel(8, py0, IW - 16, ph, 0.9);
+  drawTextC(ctx, ic.name, IW / 2, py0 + 8, RARITY_COLORS[ic.rarity], 2);
+  for (var li = 0; li < lines.length; li++) {
+    drawTextC(ctx, lines[li][0], IW / 2, py0 + 26 + li * 10, lines[li][1]);
+  }
+  drawTextC(ctx, "ТАП = ЗАКРЫТЬ", IW / 2, py0 + ph - 10, PAL.E);
+}
+
+// полное описание карты для оверлея информации
+function cardInfoLines(c) {
+  var L = [];
+  L.push(["РЕДКОСТЬ: " + RARITY_NAMES[c.rarity], RARITY_COLORS[c.rarity]]);
+  L.push(["ЦЕНА: " + c.cost + " ЭНЕРГИИ", PAL.Y]);
+  if (c.curse) { L.push(["НЕИГРАЕМА, ЗАНИМАЕТ РУКУ", PAL.P]); }
+  if (c.rok) { L.push(["УРОН = " + c.rok + " Х ТВОЯ ЭНЕРГИЯ", PAL.W]); }
+  if (c.taran) { L.push(["УРОН = ТВОЙ ЩИТ" + (c.dmg ? " +" + c.dmg : ""), PAL.W]); }
+  else if (c.dmg && c.hits > 1) {
+    L.push(["УРОН " + c.dmg + " СЕЙЧАС И КАЖДЫЙ", PAL.W]);
+    L.push(["ХОД, ВСЕГО " + c.hits + " ХОДА", PAL.W]);
+  }
+  else if (c.dmg) { L.push(["УРОН " + c.dmg + " ПО ВРАГУ", PAL.W]); }
+  if (c.pierce) { L.push(["ПРОБИВАЕТ ЩИТ ВРАГА", PAL.O]); }
+  if (c.steal) { L.push(["КРАДЁТ " + c.steal + " МОНЕТ", PAL.Y]); }
+  if (c.block) { L.push(["ЩИТ +" + c.block + " ДО ХОДА ВРАГА", PAL.A]); }
+  if (c.spikes) { L.push(["ШИПЫ: ОТРАЖАЕТ ЧАСТЬ АТАКИ", PAL.O]); }
+  if (c.keepBlock) { L.push(["ЩИТ НЕ СГОРАЕТ В КОНЦЕ ХОДА", PAL.A]); }
+  if (c.heal) { L.push(["ЛЕЧИТ " + c.heal + " ХП", PAL.L]); }
+  if (c.regen) { L.push(["РЕГЕН: +" + c.regen[0] + " ХП " + c.regen[1] + " ХОДА", PAL.L]); }
+  if (c.poison) { L.push(["ЯД " + c.poison + ": ТИКАЕТ И ТАЕТ", PAL.G]); }
+  if (c.burn) { L.push(["ПОДЖОГ " + c.burn + ": ГОРИТ СКВОЗЬ ЩИТ", PAL.O]); }
+  if (c.stun) { L.push(["СТАН: ВРАГ ПРОПУСКАЕТ ХОД", PAL.Y]); }
+  if (c.energy) { L.push(["ЭНЕРГИЯ +" + c.energy + " СРАЗУ", PAL.Y]); }
+  if (c.draw) { L.push(["ДОБОР " + c.draw + " КАРТ", PAL.C]); }
+  if (c.purge) { L.push(["СНИМАЕТ СЕТЬ С ТЕБЯ", PAL.C]); }
+  if (c.self) { L.push(["БОЛЬ: -" + c.self + " ХП ТЕБЕ", PAL.R]); }
+  return L;
 }
 
 function drawReward() {
@@ -3070,6 +3282,56 @@ function drawEvent() {
       drawSoftPanel(4, 84, IW - 8, 30, 0.42);
       drawTextC(ctx, G.voice, IW / 2, 92, PAL.M);
       drawTextC(ctx, ev.text, IW / 2, 104, PAL.L);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "robbers") {
+    drawTextC(ctx, "РАЗБОЙНИКИ!", IW / 2, 22, PAL.R, 2);
+    drawMonsterBacking(IW / 2, 42, 36, 36, false);
+    drawSprite("goblin", Math.round((IW - 36) / 2), 42, 36, 36);
+    if (ev.stage === 0) {
+      drawSoftPanel(4, 84, IW - 8, 30, 0.42);
+      drawLines(["В ЛАВКЕ НЕ ТОРГОВЕЦ -",
+                 "ЗАСАДА РАЗБОЙНИКОВ!",
+                 "КОШЕЛЁК ИЛИ ЖИЗНЬ!"], 86, 9, PAL.W);
+      drawOption("ОТКУПИТЬСЯ: 15 МОНЕТ", 120, G.gold >= 15, 0);
+      drawOption("В БОЙ! ЗА ДОБЫЧУ", 140, true, 1);
+    } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
+      drawTextC(ctx, ev.text, IW / 2, 96, PAL.Y);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "pirates") {
+    drawTextC(ctx, "ПИРАТЫ!", IW / 2, 22, PAL.O, 2);
+    drawMonsterBacking(IW / 2, 42, 34, 38, false);
+    drawSprite("bones", Math.round((IW - 34) / 2), 42, 34, 38);
+    if (ev.stage === 0) {
+      drawSoftPanel(4, 88, IW - 8, 30, 0.42);
+      drawLines(["ПОДЗЕМНЫЕ ПИРАТЫ УСПЕЛИ",
+                 "ПЕРВЫМИ! ОНИ УЖЕ ДЕЛЯТ",
+                 "ТВОЙ КЛАД У СУНДУКА..."], 90, 9, PAL.W);
+      drawOption("ОТБИТЬ КЛАД: В БОЙ!", 124, true, 0);
+      drawOption("УЙТИ НИ С ЧЕМ", 144, true, 1);
+    } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
+      drawTextC(ctx, ev.text, IW / 2, 96, PAL.S);
+      drawOption("ДАЛЬШЕ", 148, true, 0);
+    }
+  } else if (ev.key === "echoVoice") {
+    drawTextC(ctx, "ЭХО ГЛУБИН", IW / 2, 22, PAL.M, 2);
+    ctx.save();
+    ctx.globalAlpha = 0.55 + Math.sin(G.time * 3) * 0.2;
+    ctx.drawImage(SPR.princess, Math.round((IW - 30) / 2), 42, 30, 42);
+    ctx.restore();
+    if (ev.stage === 0) {
+      drawSoftPanel(4, 90, IW - 8, 30, 0.42);
+      drawLines(["ИЗ ТРЕЩИН ДОНОСИТСЯ ГОЛОС:",
+                 "РЫЦАРЬ... ТЫ ЕЩЁ ИДЁШЬ?",
+                 "ОНА ЖДЁТ ОТВЕТА."], 92, 9, PAL.W);
+      drawOption("КРИКНУТЬ В ОТВЕТ", 126, true, 0);
+      drawOption("МОЛЧА ИДТИ ВНИЗ", 146, true, 1);
+    } else {
+      drawSoftPanel(4, 88, IW - 8, 18, 0.42);
+      drawTextC(ctx, ev.text, IW / 2, 96, PAL.M);
       drawOption("ДАЛЬШЕ", 148, true, 0);
     }
   }
@@ -3323,6 +3585,7 @@ function draw() {
     var f = G.floaters[i];
     drawTextC(ctx, f.text, f.x, Math.round(f.y), f.color);
   }
+  if (G.state === "battle" && G.cardInfo) { drawCardInfoOverlay(); }
   if (G.fade > 0) {
     ctx.fillStyle = "rgba(26,28,44," + Math.min(1, G.fade * 2.2) + ")";
     ctx.fillRect(0, 0, IW, IH);
